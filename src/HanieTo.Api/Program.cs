@@ -1,11 +1,26 @@
+using System.Text.Json.Serialization;
+using HanieTo.Api.Data;
+using HanieTo.Api.Publishing;
+using HanieTo.Api.Publishing.Publishers;
+using Microsoft.EntityFrameworkCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=HanieTo.db"));
+
+builder.Services.AddScoped<IChannelPublisher, InstagramPublisher>();
+builder.Services.AddScoped<IChannelPublisher, TwitterPublisher>();
+builder.Services.AddScoped<IChannelPublisher, TelegramPublisher>();
+builder.Services.AddScoped<ChannelPublisherResolver>();
 
 var app = builder.Build();
 
@@ -16,6 +31,12 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    db.Database.Migrate();
+}
+
 app.UseHttpsRedirection();
 
 app.UseAuthorization();
@@ -23,3 +44,5 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+public partial class Program;
