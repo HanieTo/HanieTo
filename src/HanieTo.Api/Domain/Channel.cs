@@ -8,9 +8,12 @@ public class Channel
     public bool IsEnabled { get; set; } = true;
 
     // Credentials for the real platform API (e.g. Telegram bot token, Twitter bearer
-    // token, Instagram/Meta access token). Optional for now since the publishers are
-    // stubs, but the field exists so a real key can be plugged in per channel later
-    // without a schema change.
+    // token, Instagram/Meta access token).
     public string? ApiKey { get; set; }
     public string? ApiSecret { get; set; }
+
+    // Where on the platform to post (e.g. a Telegram chat id or "@channelusername").
+    // Separate from ApiKey/ApiSecret because those identify *who is posting*, this
+    // identifies *where*.
+    public string? ExternalId { get; set; }
 }

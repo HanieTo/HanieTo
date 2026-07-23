@@ -7,12 +7,17 @@ using Microsoft.EntityFrameworkCore;
 namespace HanieTo.Api.Controllers;
 
 public record CreateContentRequest(string Title, string Body);
-public record PublishContentRequest(Guid[] ChannelIds);
 public record PublishAttemptResult(Guid ChannelId, string ChannelName, bool Success, string? ExternalPostId, string? ErrorMessage);
+
+public class PublishContentForm
+{
+    public List<Guid> ChannelIds { get; set; } = [];
+    public IFormFile? Photo { get; set; }
+}
 
 [ApiController]
 [Route("api/[controller]")]
-public class ContentController(AppDbContext db, ChannelPublisherResolver resolver) : ControllerBase
+public class ContentController(AppDbContext db, ChannelPublisherResolver resolver, IWebHostEnvironment env) : ControllerBase
 {
     [HttpPost]
     public async Task<IActionResult> Create(CreateContentRequest request)
@@ -36,7 +41,8 @@ public class ContentController(AppDbContext db, ChannelPublisherResolver resolve
     }
 
     [HttpPost("{id:guid}/publish")]
-    public async Task<IActionResult> Publish(Guid id, PublishContentRequest request)
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> Publish(Guid id, [FromForm] PublishContentForm form)
     {
         var content = await db.Contents.FirstOrDefaultAsync(c => c.Id == id);
         if (content is null)
@@ -45,12 +51,28 @@ public class ContentController(AppDbContext db, ChannelPublisherResolver resolve
         }
 
         var channels = await db.Channels
-            .Where(c => request.ChannelIds.Contains(c.Id))
+            .Where(c => form.ChannelIds.Contains(c.Id))
             .ToListAsync();
 
-        if (channels.Count != request.ChannelIds.Length)
+        if (channels.Count != form.ChannelIds.Count)
         {
             return BadRequest("One or more channel ids do not exist.");
+        }
+
+        PublishMedia? media = null;
+        if (form.Photo is not null)
+        {
+            using var ms = new MemoryStream();
+            await form.Photo.CopyToAsync(ms, HttpContext.RequestAborted);
+            var bytes = ms.ToArray();
+
+            var uploadsDir = Path.Combine(env.WebRootPath, "uploads");
+            Directory.CreateDirectory(uploadsDir);
+            var storedFileName = $"{Guid.NewGuid():N}{Path.GetExtension(form.Photo.FileName)}";
+            await System.IO.File.WriteAllBytesAsync(Path.Combine(uploadsDir, storedFileName), bytes, HttpContext.RequestAborted);
+
+            var url = $"{Request.Scheme}://{Request.Host}/uploads/{storedFileName}";
+            media = new PublishMedia(bytes, form.Photo.FileName, form.Photo.ContentType, url);
         }
 
         content.Status = ContentStatus.Publishing;
@@ -58,7 +80,7 @@ public class ContentController(AppDbContext db, ChannelPublisherResolver resolve
         var publishTasks = channels.Select(async channel =>
         {
             var publisher = resolver.Resolve(channel.Type);
-            var outcome = await publisher.PublishAsync(content, channel, HttpContext.RequestAborted);
+            var outcome = await publisher.PublishAsync(content, channel, media, HttpContext.RequestAborted);
 
             var attempt = new PublishAttempt
             {

@@ -17,6 +17,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=HanieTo.db"));
 
+builder.Services.AddHttpClient();
 builder.Services.AddScoped<IChannelPublisher, InstagramPublisher>();
 builder.Services.AddScoped<IChannelPublisher, TwitterPublisher>();
 builder.Services.AddScoped<IChannelPublisher, TelegramPublisher>();
@@ -38,6 +39,8 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseHttpsRedirection();
+
+app.UseStaticFiles();
 
 app.UseAuthorization();
 

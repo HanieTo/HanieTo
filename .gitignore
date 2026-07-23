@@ -432,3 +432,7 @@ FodyWeavers.xsd
 *.db
 *.db-shm
 *.db-wal
+
+# Uploaded media (local dev hosting for publish testing)
+src/HanieTo.Api/wwwroot/uploads/*
+!src/HanieTo.Api/wwwroot/uploads/.gitkeep

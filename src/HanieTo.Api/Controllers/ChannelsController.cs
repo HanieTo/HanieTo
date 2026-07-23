@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HanieTo.Api.Controllers;
 
-public record CreateChannelRequest(ChannelType Type, string DisplayName, string? ApiKey, string? ApiSecret);
+public record CreateChannelRequest(ChannelType Type, string DisplayName, string? ApiKey, string? ApiSecret, string? ExternalId);
 
 [ApiController]
 [Route("api/[controller]")]
@@ -19,7 +19,8 @@ public class ChannelsController(AppDbContext db) : ControllerBase
             Type = request.Type,
             DisplayName = request.DisplayName,
             ApiKey = request.ApiKey,
-            ApiSecret = request.ApiSecret
+            ApiSecret = request.ApiSecret,
+            ExternalId = request.ExternalId
         };
 
         db.Channels.Add(channel);

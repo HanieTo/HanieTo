@@ -44,9 +44,12 @@ public class PublishingFlowTests : IClassFixture<WebApplicationFactory<Program>>
         var content = await contentResponse.Content.ReadFromJsonAsync<Content>(JsonOptions);
         Assert.NotNull(content);
 
-        var publishResponse = await _client.PostAsJsonAsync(
-            $"/api/content/{content!.Id}/publish",
-            new { ChannelIds = new[] { instagram.Id, twitter.Id } });
+        using var publishForm = new MultipartFormDataContent
+        {
+            { new StringContent(instagram.Id.ToString()), "ChannelIds" },
+            { new StringContent(twitter.Id.ToString()), "ChannelIds" }
+        };
+        var publishResponse = await _client.PostAsync($"/api/content/{content!.Id}/publish", publishForm);
         publishResponse.EnsureSuccessStatusCode();
 
         var getResponse = await _client.GetAsync($"/api/content/{content.Id}");
