@@ -38,7 +38,14 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-app.UseHttpsRedirection();
+// Skipped in Development: when accessed through an ngrok tunnel (for testing
+// webhook-style calls like Instagram fetching a hosted photo), a forced redirect
+// to https://localhost:... would send external callers to an address only this
+// machine can reach.
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseStaticFiles();
 
