@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -29,6 +30,12 @@ public class TelegramShopBotService(
 {
     private long _offset;
     private string _baseUrl = "";
+
+    // The single "live" menu message per chat. Keeping one message and editing it
+    // (rather than sending a new one each time) is what stops the chat from filling
+    // with stacked menus. In-memory is fine: if the bot restarts, at worst the next
+    // interaction spins up one fresh menu.
+    private readonly ConcurrentDictionary<long, long> _lastMenu = new();
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -86,20 +93,21 @@ public class TelegramShopBotService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // A typed message (e.g. /start) - always send a fresh message.
+        // A typed message (e.g. /start, or the user just typing something). Rather
+        // than spawning a new menu every time, delete what they typed and refresh
+        // the single existing menu in place - so the chat stays to one clean menu.
         if (update.TryGetProperty("message", out var message))
         {
             var chatId = message.GetProperty("chat").GetProperty("id").GetInt64();
-            var pref = await db.ChatPreferences.FirstOrDefaultAsync(p => p.ChatId == chatId.ToString(), ct);
+            var userMessageId = message.GetProperty("message_id").GetInt64();
+            await DeleteMessageAsync(client, chatId, userMessageId, ct);
 
-            if (pref is null)
-            {
-                await SendAsync(client, chatId, null, BotLocalization.Get(BotLanguage.English, T.ChooseLanguage), LanguageKeyboard(), ct);
-            }
-            else
-            {
-                await SendAsync(client, chatId, null, Loc(pref.Language, T.WelcomeMenu), MainMenuKeyboard(pref.Language), ct);
-            }
+            var pref = await db.ChatPreferences.FirstOrDefaultAsync(p => p.ChatId == chatId.ToString(), ct);
+            var (text, keyboard) = pref is null
+                ? (BotLocalization.Get(BotLanguage.English, T.ChooseLanguage), LanguageKeyboard())
+                : (Loc(pref.Language, T.WelcomeMenu), MainMenuKeyboard(pref.Language));
+
+            await RenderMenuAsync(client, chatId, text, keyboard, ct);
             return;
         }
 
@@ -111,6 +119,9 @@ public class TelegramShopBotService(
             var chatId = msg.GetProperty("chat").GetProperty("id").GetInt64();
             var messageId = msg.GetProperty("message_id").GetInt64();
             var data = callback.TryGetProperty("data", out var dataProp) ? dataProp.GetString() ?? "" : "";
+
+            // This tapped message becomes the live menu we keep editing.
+            _lastMenu[chatId] = messageId;
 
             await AnswerCallbackAsync(client, callbackId, ct);
             await RouteAsync(client, db, chatId, messageId, data, ct);
@@ -447,7 +458,7 @@ public class TelegramShopBotService(
         var text = $"🔔 *New order*\nFrom chat: `{buyerChatId}`\n\n{summary}\n\n*Total: {Money(order.Total)}*\nOrder ID: `{order.Id:N}`";
         try
         {
-            await SendAsync(client, long.Parse(adminChatId), null, text, Keyboard([]), ct);
+            await SendAsync(client, long.Parse(adminChatId), text, Keyboard([]), ct);
         }
         catch (Exception ex)
         {
@@ -505,24 +516,91 @@ public class TelegramShopBotService(
 
     // --- Telegram calls ---
 
-    private async Task SendAsync(HttpClient client, long chatId, long? messageId, string text, object keyboard, CancellationToken ct)
+    // Shows content in the chat's single live menu message: edits it if we have one,
+    // otherwise sends a new message and remembers its id.
+    private async Task RenderMenuAsync(HttpClient client, long chatId, string text, object keyboard, CancellationToken ct)
+    {
+        if (_lastMenu.TryGetValue(chatId, out var existingId) &&
+            await TryEditAsync(client, chatId, existingId, text, keyboard, ct))
+        {
+            return;
+        }
+
+        var newId = await SendAsync(client, chatId, text, keyboard, ct);
+        if (newId.HasValue)
+        {
+            _lastMenu[chatId] = newId.Value;
+        }
+    }
+
+    private async Task<long?> SendAsync(HttpClient client, long chatId, string text, object keyboard, CancellationToken ct)
     {
         var body = new { chat_id = chatId, text, parse_mode = "Markdown", reply_markup = keyboard };
         using var content = JsonContent.Create(body);
-        await client.PostAsync($"{_baseUrl}/sendMessage", content, ct);
+        var response = await client.PostAsync($"{_baseUrl}/sendMessage", content, ct);
+
+        try
+        {
+            var responseBody = await response.Content.ReadAsStringAsync(ct);
+            using var json = JsonDocument.Parse(responseBody);
+            if (json.RootElement.TryGetProperty("result", out var result) &&
+                result.TryGetProperty("message_id", out var mid))
+            {
+                return mid.GetInt64();
+            }
+        }
+        catch (JsonException) { /* ignore - just means we won't track this id */ }
+
+        return null;
     }
 
     private async Task EditAsync(HttpClient client, long chatId, long messageId, string text, object keyboard, CancellationToken ct)
+    {
+        if (await TryEditAsync(client, chatId, messageId, text, keyboard, ct))
+        {
+            _lastMenu[chatId] = messageId;
+            return;
+        }
+
+        // Message can't be edited (too old, or already identical) - send a fresh one.
+        var newId = await SendAsync(client, chatId, text, keyboard, ct);
+        if (newId.HasValue)
+        {
+            _lastMenu[chatId] = newId.Value;
+        }
+    }
+
+    private async Task<bool> TryEditAsync(HttpClient client, long chatId, long messageId, string text, object keyboard, CancellationToken ct)
     {
         var body = new { chat_id = chatId, message_id = messageId, text, parse_mode = "Markdown", reply_markup = keyboard };
         using var content = JsonContent.Create(body);
         var response = await client.PostAsync($"{_baseUrl}/editMessageText", content, ct);
 
-        // If the message can't be edited (e.g. it was a fresh /start with no markup
-        // to replace, or it's identical), fall back to sending a new one.
-        if (!response.IsSuccessStatusCode)
+        if (response.IsSuccessStatusCode)
         {
-            await SendAsync(client, chatId, null, text, keyboard, ct);
+            return true;
+        }
+
+        // "message is not modified" means the tapped button renders exactly what's
+        // already showing (e.g. Home while already Home). The menu is already correct,
+        // so treat it as success - sending a new message here is what caused menus to
+        // stack up.
+        var responseBody = await response.Content.ReadAsStringAsync(ct);
+        return responseBody.Contains("message is not modified");
+    }
+
+    // Best-effort deletion of a user's typed message so the chat stays tidy. Bots
+    // can delete messages in a private chat within 48h; failures are ignored.
+    private async Task DeleteMessageAsync(HttpClient client, long chatId, long messageId, CancellationToken ct)
+    {
+        try
+        {
+            using var content = JsonContent.Create(new { chat_id = chatId, message_id = messageId });
+            await client.PostAsync($"{_baseUrl}/deleteMessage", content, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "Could not delete user message {MessageId}", messageId);
         }
     }
 
