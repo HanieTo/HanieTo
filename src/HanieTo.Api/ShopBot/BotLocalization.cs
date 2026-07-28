@@ -36,7 +36,9 @@ public enum T
     CartEmpty,
     Checkout,
     ClearCart,
-    ContinueShopping
+    ContinueShopping,
+    UseMenu,
+    WelcomePrompt
 }
 
 // Trilingual strings for the shop bot (English / Russian / Persian). Telegram
@@ -80,7 +82,9 @@ public static class BotLocalization
             [T.CartEmpty] = "🛒 Your cart is empty.",
             [T.Checkout] = "✅ Checkout",
             [T.ClearCart] = "🗑 Clear cart",
-            [T.ContinueShopping] = "🛍 Continue shopping"
+            [T.ContinueShopping] = "🛍 Continue shopping",
+            [T.UseMenu] = "⚠️ Please use the menu below 👇",
+            [T.WelcomePrompt] = "🏪 *Welcome to our shop!*\n\nUse the menu below 👇"
         },
         [BotLanguage.Russian] = new()
         {
@@ -116,7 +120,9 @@ public static class BotLocalization
             [T.CartEmpty] = "🛒 Ваша корзина пуста.",
             [T.Checkout] = "✅ Оформить",
             [T.ClearCart] = "🗑 Очистить",
-            [T.ContinueShopping] = "🛍 Продолжить покупки"
+            [T.ContinueShopping] = "🛍 Продолжить покупки",
+            [T.UseMenu] = "⚠️ Пожалуйста, используйте меню ниже 👇",
+            [T.WelcomePrompt] = "🏪 *Добро пожаловать в наш магазин!*\n\nИспользуйте меню ниже 👇"
         },
         [BotLanguage.Persian] = new()
         {
@@ -152,7 +158,9 @@ public static class BotLocalization
             [T.CartEmpty] = "🛒 سبد خرید شما خالی است.",
             [T.Checkout] = "✅ تسویه حساب",
             [T.ClearCart] = "🗑 خالی کردن سبد",
-            [T.ContinueShopping] = "🛍 ادامه خرید"
+            [T.ContinueShopping] = "🛍 ادامه خرید",
+            [T.UseMenu] = "⚠️ لطفاً از منوی زیر استفاده کنید 👇",
+            [T.WelcomePrompt] = "🏪 *به فروشگاه ما خوش آمدید!*\n\nاز منوی زیر استفاده کنید 👇"
         }
     };
 
