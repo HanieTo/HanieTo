@@ -26,6 +26,11 @@ builder.Services.AddScoped<IChannelPublisher, EitaaPublisher>();
 builder.Services.AddScoped<IChannelPublisher, RubikaPublisher>();
 builder.Services.AddScoped<IChannelPublisher, WhatsAppPublisher>();
 builder.Services.AddScoped<IChannelPublisher, DivarPublisher>();
+builder.Services.AddScoped<IChannelPublisher, DiscordPublisher>();
+builder.Services.AddScoped<IChannelPublisher, SlackPublisher>();
+builder.Services.AddScoped<IChannelPublisher, LinkedInPublisher>();
+builder.Services.AddScoped<IChannelPublisher, PinterestPublisher>();
+builder.Services.AddScoped<IChannelPublisher, TikTokPublisher>();
 builder.Services.AddScoped<ChannelPublisherResolver>();
 
 var app = builder.Build();

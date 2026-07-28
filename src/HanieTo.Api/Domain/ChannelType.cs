@@ -9,5 +9,10 @@ public enum ChannelType
     Eitaa,
     Rubika,
     WhatsApp,
-    Divar
+    Divar,
+    Discord,
+    Slack,
+    LinkedIn,
+    Pinterest,
+    TikTok
 }
