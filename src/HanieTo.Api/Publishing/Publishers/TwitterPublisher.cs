@@ -6,7 +6,7 @@ public class TwitterPublisher : IChannelPublisher
 {
     public ChannelType SupportedType => ChannelType.Twitter;
 
-    public async Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, CancellationToken cancellationToken)
+    public async Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, ListingDetails? listing, CancellationToken cancellationToken)
     {
         await Task.Delay(150, cancellationToken);
         return new PublishOutcome(true, $"tw_{Guid.NewGuid():N}", null);

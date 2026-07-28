@@ -3,24 +3,24 @@ using HanieTo.Api.Domain;
 
 namespace HanieTo.Api.Publishing.Publishers;
 
-// Real integration with the Telegram Bot API. Channel.ApiKey holds the bot token
-// (from @BotFather) and Channel.ExternalId holds the target chat id or "@channel"
-// handle the bot has been added to. If either is missing, falls back to a
-// simulated success so channels created without real credentials still work.
-public class TelegramPublisher(IHttpClientFactory httpClientFactory) : IChannelPublisher
+// Real integration with the Bale Bot API (tapi.bale.ai) - Bale is an Iranian
+// messenger whose bot API is a Telegram Bot API-compatible clone, same shape as
+// TelegramPublisher. Channel.ApiKey holds the bot token, Channel.ExternalId holds
+// the target chat id. Falls back to a simulated success without credentials.
+public class BalePublisher(IHttpClientFactory httpClientFactory) : IChannelPublisher
 {
-    public ChannelType SupportedType => ChannelType.Telegram;
+    public ChannelType SupportedType => ChannelType.Bale;
 
     public async Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, ListingDetails? listing, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(channel.ApiKey) || string.IsNullOrWhiteSpace(channel.ExternalId))
         {
             await Task.Delay(150, cancellationToken);
-            return new PublishOutcome(true, $"tg_{Guid.NewGuid():N}", null);
+            return new PublishOutcome(true, $"bale_{Guid.NewGuid():N}", null);
         }
 
         var client = httpClientFactory.CreateClient();
-        var baseUrl = $"https://api.telegram.org/bot{channel.ApiKey}";
+        var baseUrl = $"https://tapi.bale.ai/bot{channel.ApiKey}";
 
         try
         {
@@ -52,7 +52,7 @@ public class TelegramPublisher(IHttpClientFactory httpClientFactory) : IChannelP
             {
                 var description = json.RootElement.TryGetProperty("description", out var descProp)
                     ? descProp.GetString()
-                    : $"Telegram API returned HTTP {(int)response.StatusCode}";
+                    : $"Bale API returned HTTP {(int)response.StatusCode}";
                 return new PublishOutcome(false, null, description);
             }
 

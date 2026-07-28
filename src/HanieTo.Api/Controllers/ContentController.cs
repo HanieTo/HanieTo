@@ -13,6 +13,11 @@ public class PublishContentForm
 {
     public List<Guid> ChannelIds { get; set; } = [];
     public IFormFile? Photo { get; set; }
+
+    // Only meaningful for marketplace-style channels (e.g. Divar).
+    public decimal? Price { get; set; }
+    public string? Category { get; set; }
+    public string? City { get; set; }
 }
 
 [ApiController]
@@ -75,12 +80,18 @@ public class ContentController(AppDbContext db, ChannelPublisherResolver resolve
             media = new PublishMedia(bytes, form.Photo.FileName, form.Photo.ContentType, url);
         }
 
+        ListingDetails? listing = null;
+        if (form.Price is not null || form.Category is not null || form.City is not null)
+        {
+            listing = new ListingDetails(form.Price, form.Category, form.City);
+        }
+
         content.Status = ContentStatus.Publishing;
 
         var publishTasks = channels.Select(async channel =>
         {
             var publisher = resolver.Resolve(channel.Type);
-            var outcome = await publisher.PublishAsync(content, channel, media, HttpContext.RequestAborted);
+            var outcome = await publisher.PublishAsync(content, channel, media, listing, HttpContext.RequestAborted);
 
             var attempt = new PublishAttempt
             {

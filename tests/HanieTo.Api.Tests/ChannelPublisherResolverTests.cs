@@ -7,7 +7,7 @@ public class FakePublisher(ChannelType type) : IChannelPublisher
 {
     public ChannelType SupportedType { get; } = type;
 
-    public Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, CancellationToken cancellationToken)
+    public Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, ListingDetails? listing, CancellationToken cancellationToken)
         => Task.FromResult(new PublishOutcome(true, "fake_id", null));
 }
 

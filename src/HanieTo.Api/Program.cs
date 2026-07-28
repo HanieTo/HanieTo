@@ -21,6 +21,11 @@ builder.Services.AddHttpClient();
 builder.Services.AddScoped<IChannelPublisher, InstagramPublisher>();
 builder.Services.AddScoped<IChannelPublisher, TwitterPublisher>();
 builder.Services.AddScoped<IChannelPublisher, TelegramPublisher>();
+builder.Services.AddScoped<IChannelPublisher, BalePublisher>();
+builder.Services.AddScoped<IChannelPublisher, EitaaPublisher>();
+builder.Services.AddScoped<IChannelPublisher, RubikaPublisher>();
+builder.Services.AddScoped<IChannelPublisher, WhatsAppPublisher>();
+builder.Services.AddScoped<IChannelPublisher, DivarPublisher>();
 builder.Services.AddScoped<ChannelPublisherResolver>();
 
 var app = builder.Build();
