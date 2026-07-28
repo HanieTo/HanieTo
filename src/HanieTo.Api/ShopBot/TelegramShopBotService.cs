@@ -93,21 +93,20 @@ public class TelegramShopBotService(
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        // A typed message (e.g. /start, or the user just typing something). Rather
-        // than spawning a new menu every time, delete what they typed and refresh
-        // the single existing menu in place - so the chat stays to one clean menu.
+        // A typed message (e.g. /start, or the user just typing something). We leave
+        // the user's own message untouched, but move our menu to the bottom of the
+        // chat: remove our previous menu and send a fresh one. That keeps the menu
+        // reachable without ever stacking multiple menus or deleting user messages.
         if (update.TryGetProperty("message", out var message))
         {
             var chatId = message.GetProperty("chat").GetProperty("id").GetInt64();
-            var userMessageId = message.GetProperty("message_id").GetInt64();
-            await DeleteMessageAsync(client, chatId, userMessageId, ct);
 
             var pref = await db.ChatPreferences.FirstOrDefaultAsync(p => p.ChatId == chatId.ToString(), ct);
             var (text, keyboard) = pref is null
                 ? (BotLocalization.Get(BotLanguage.English, T.ChooseLanguage), LanguageKeyboard())
                 : (Loc(pref.Language, T.WelcomeMenu), MainMenuKeyboard(pref.Language));
 
-            await RenderMenuAsync(client, chatId, text, keyboard, ct);
+            await RefreshMenuAtBottomAsync(client, chatId, text, keyboard, ct);
             return;
         }
 
@@ -516,14 +515,14 @@ public class TelegramShopBotService(
 
     // --- Telegram calls ---
 
-    // Shows content in the chat's single live menu message: edits it if we have one,
-    // otherwise sends a new message and remembers its id.
-    private async Task RenderMenuAsync(HttpClient client, long chatId, string text, object keyboard, CancellationToken ct)
+    // For text messages: deletes our OWN previous menu (never the user's messages)
+    // and sends a fresh menu at the bottom of the chat, so there's only ever one
+    // menu and it stays reachable below whatever the user typed.
+    private async Task RefreshMenuAtBottomAsync(HttpClient client, long chatId, string text, object keyboard, CancellationToken ct)
     {
-        if (_lastMenu.TryGetValue(chatId, out var existingId) &&
-            await TryEditAsync(client, chatId, existingId, text, keyboard, ct))
+        if (_lastMenu.TryRemove(chatId, out var oldMenuId))
         {
-            return;
+            await DeleteMessageAsync(client, chatId, oldMenuId, ct);
         }
 
         var newId = await SendAsync(client, chatId, text, keyboard, ct);
@@ -589,8 +588,8 @@ public class TelegramShopBotService(
         return responseBody.Contains("message is not modified");
     }
 
-    // Best-effort deletion of a user's typed message so the chat stays tidy. Bots
-    // can delete messages in a private chat within 48h; failures are ignored.
+    // Best-effort deletion of the bot's own previous menu message. Bots can delete
+    // their messages in a private chat within 48h; failures are ignored.
     private async Task DeleteMessageAsync(HttpClient client, long chatId, long messageId, CancellationToken ct)
     {
         try
