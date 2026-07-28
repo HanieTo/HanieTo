@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using HanieTo.Api.Data;
 using HanieTo.Api.Publishing;
 using HanieTo.Api.Publishing.Publishers;
+using HanieTo.Api.ShopBot;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -32,6 +33,7 @@ builder.Services.AddScoped<IChannelPublisher, LinkedInPublisher>();
 builder.Services.AddScoped<IChannelPublisher, PinterestPublisher>();
 builder.Services.AddScoped<IChannelPublisher, TikTokPublisher>();
 builder.Services.AddScoped<ChannelPublisherResolver>();
+builder.Services.AddHostedService<TelegramShopBotService>();
 
 var app = builder.Build();
 
