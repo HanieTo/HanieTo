@@ -1,10 +1,14 @@
 using System.Collections.Concurrent;
 using System.Globalization;
-using System.Net.Http.Json;
-using System.Text.Json;
 using HanieTo.Api.Data;
 using HanieTo.Api.Domain;
 using Microsoft.EntityFrameworkCore;
+using Telegram.Bot;
+using Telegram.Bot.Exceptions;
+using Telegram.Bot.Polling;
+using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
+using Telegram.Bot.Types.ReplyMarkups;
 
 namespace HanieTo.Api.ShopBot;
 
@@ -12,29 +16,25 @@ namespace HanieTo.Api.ShopBot;
 // conversation with each customer (distinct from Publishing/.../TelegramPublisher,
 // which only pushes one-way channel announcements).
 //
-// Uses long-polling (getUpdates), so it runs locally with no webhook/tunnel.
+// Built on the Telegram.Bot library (typed client + keyboards + robust polling)
+// rather than hand-rolled HTTP/JSON. DropPendingUpdates=true means a restart does
+// NOT replay the backlog of old taps.
 //
-// Keyboard model (the user wanted "both"):
-// - A persistent reply keyboard docked at the bottom of the screen = the main menu
+// Keyboard model (the user wanted both):
+// - A persistent reply keyboard docked at the bottom = the main menu
 //   (Products / Cart / Orders / Help / Language), always visible.
-// - Inline keyboards on a single reused message = drill-down navigation
-//   (categories -> products -> quantity, cart, orders), edited in place so menus
-//   never stack.
-// - Typing a message that isn't a menu action does NOT spawn a new menu; it shows
-//   one short "use the menu" hint that never stacks.
+// - Inline keyboards on a single reused message = drill-down navigation, edited in
+//   place so menus never stack.
+// - Typing a non-menu message shows one short "use the menu" hint that never stacks.
 public class TelegramShopBotService(
-    IHttpClientFactory httpClientFactory,
     IServiceScopeFactory scopeFactory,
     IConfiguration configuration,
     ILogger<TelegramShopBotService> logger) : BackgroundService
 {
-    private long _offset;
-    private string _baseUrl = "";
-
     // The single live inline "menu" message per chat, edited in place.
-    private readonly ConcurrentDictionary<long, long> _lastMenu = new();
-    // The single "use the menu" hint message per chat, so stray text never stacks.
-    private readonly ConcurrentDictionary<long, long> _hint = new();
+    private readonly ConcurrentDictionary<long, int> _lastMenu = new();
+    // The single "use the menu" hint per chat, so stray text never stacks.
+    private readonly ConcurrentDictionary<long, int> _hint = new();
 
     // Maps a bottom-bar button's text (in every language) back to its action.
     private static readonly Dictionary<string, string> BarActions = BuildBarActions();
@@ -48,113 +48,103 @@ public class TelegramShopBotService(
             return;
         }
 
-        _baseUrl = $"https://api.telegram.org/bot{botToken}";
-        var client = httpClientFactory.CreateClient();
+        var bot = new TelegramBotClient(botToken);
+        var options = new ReceiverOptions
+        {
+            AllowedUpdates = [UpdateType.Message, UpdateType.CallbackQuery],
+            DropPendingUpdates = true
+        };
+
         logger.LogInformation("Shop bot started, polling for updates.");
+        await bot.ReceiveAsync(HandleUpdateAsync, HandleErrorAsync, options, stoppingToken);
+    }
 
-        while (!stoppingToken.IsCancellationRequested)
+    private Task HandleErrorAsync(ITelegramBotClient bot, Exception exception, CancellationToken ct)
+    {
+        logger.LogError(exception, "Shop bot polling error");
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleUpdateAsync(ITelegramBotClient bot, Update update, CancellationToken ct)
+    {
+        try
         {
-            try
+            using var scope = scopeFactory.CreateScope();
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+
+            if (update.Message is { } message)
             {
-                foreach (var update in await GetUpdatesAsync(client, stoppingToken))
-                {
-                    await HandleUpdateAsync(client, update, stoppingToken);
-                }
+                await HandleMessageAsync(bot, db, message, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            else if (update.CallbackQuery is { } callback)
             {
-                logger.LogError(ex, "Error while polling shop bot updates");
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
+                await HandleCallbackAsync(bot, db, callback, ct);
             }
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error handling shop bot update");
         }
     }
 
-    private async Task<List<JsonElement>> GetUpdatesAsync(HttpClient client, CancellationToken ct)
+    private async Task HandleMessageAsync(ITelegramBotClient bot, AppDbContext db, Message message, CancellationToken ct)
     {
-        var response = await client.GetAsync($"{_baseUrl}/getUpdates?offset={_offset}&timeout=25", ct);
-        var body = await response.Content.ReadAsStringAsync(ct);
-        using var json = JsonDocument.Parse(body);
+        var chatId = message.Chat.Id;
+        var text = (message.Text ?? "").Trim();
 
-        var updates = new List<JsonElement>();
-        if (!json.RootElement.TryGetProperty("result", out var result))
+        var pref = await db.ChatPreferences.FirstOrDefaultAsync(p => p.ChatId == chatId.ToString(), ct);
+        if (pref is null)
         {
-            return updates;
-        }
-
-        foreach (var update in result.EnumerateArray())
-        {
-            updates.Add(update.Clone());
-            _offset = update.GetProperty("update_id").GetInt64() + 1;
-        }
-
-        return updates;
-    }
-
-    private async Task HandleUpdateAsync(HttpClient client, JsonElement update, CancellationToken ct)
-    {
-        using var scope = scopeFactory.CreateScope();
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-
-        if (update.TryGetProperty("message", out var message))
-        {
-            var chatId = message.GetProperty("chat").GetProperty("id").GetInt64();
-            var text = message.TryGetProperty("text", out var t) ? (t.GetString() ?? "").Trim() : "";
-
-            var pref = await db.ChatPreferences.FirstOrDefaultAsync(p => p.ChatId == chatId.ToString(), ct);
-            if (pref is null)
-            {
-                // First contact - ask for a language (inline). The bottom bar is docked
-                // once a language is chosen.
-                await RenderAsync(client, chatId, null, BotLocalization.Get(BotLanguage.English, T.ChooseLanguage), LanguageKeyboard(), ct);
-                return;
-            }
-
-            var lang = pref.Language;
-
-            // A /start (or any command) re-docks the bottom bar and greets.
-            if (text.StartsWith('/'))
-            {
-                await DockBarAndWelcomeAsync(client, chatId, lang, ct);
-                return;
-            }
-
-            // A tap on the bottom bar arrives as text matching a button label.
-            if (BarActions.TryGetValue(text, out var action))
-            {
-                await ClearHintAsync(client, chatId, ct);
-                await RouteAsync(client, db, chatId, null, action, ct);
-                return;
-            }
-
-            // Anything else: a single non-stacking hint, not a new menu.
-            await ShowHintAsync(client, chatId, lang, ct);
+            // First contact - ask for a language. The bottom bar docks once chosen.
+            await RenderAsync(bot, chatId, null, BotLocalization.Get(BotLanguage.English, T.ChooseLanguage), LanguageKeyboard(), ct);
             return;
         }
 
-        if (update.TryGetProperty("callback_query", out var callback))
-        {
-            var callbackId = callback.GetProperty("id").GetString()!;
-            var msg = callback.GetProperty("message");
-            var chatId = msg.GetProperty("chat").GetProperty("id").GetInt64();
-            var messageId = msg.GetProperty("message_id").GetInt64();
-            var data = callback.TryGetProperty("data", out var dataProp) ? dataProp.GetString() ?? "" : "";
+        var lang = pref.Language;
 
-            _lastMenu[chatId] = messageId;
-            await AnswerCallbackAsync(client, callbackId, ct);
-            await RouteAsync(client, db, chatId, messageId, data, ct);
+        // /start (or any command) re-docks the bottom bar and greets.
+        if (text.StartsWith('/'))
+        {
+            await DockBarAndWelcomeAsync(bot, chatId, lang, ct);
+            return;
         }
+
+        // A tap on the bottom bar arrives as text matching a button label.
+        if (BarActions.TryGetValue(text, out var action))
+        {
+            await ClearHintAsync(bot, chatId, ct);
+            await RouteAsync(bot, db, chatId, null, action, ct);
+            return;
+        }
+
+        // Anything else: one non-stacking hint, not a new menu.
+        await ShowHintAsync(bot, chatId, lang, ct);
+    }
+
+    private async Task HandleCallbackAsync(ITelegramBotClient bot, AppDbContext db, CallbackQuery callback, CancellationToken ct)
+    {
+        await bot.AnswerCallbackQuery(callback.Id, cancellationToken: ct);
+
+        if (callback.Message is null)
+        {
+            return;
+        }
+
+        var chatId = callback.Message.Chat.Id;
+        _lastMenu[chatId] = callback.Message.MessageId;
+        await RouteAsync(bot, db, chatId, callback.Message.MessageId, callback.Data ?? "", ct);
     }
 
     // messageId non-null => a button tap, edit that message in place.
     // messageId null     => triggered by the bottom bar, render a fresh menu.
-    private async Task RouteAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, string data, CancellationToken ct)
+    private async Task RouteAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, string data, CancellationToken ct)
     {
         var parts = data.Split(':');
         var action = parts.ElementAtOrDefault(0);
 
         if (action == "lang")
         {
-            await SetLanguageAsync(client, db, chatId, parts.ElementAtOrDefault(1) ?? "en", ct);
+            await SetLanguageAsync(bot, db, chatId, parts.ElementAtOrDefault(1) ?? "en", ct);
             return;
         }
 
@@ -163,48 +153,48 @@ public class TelegramShopBotService(
         switch (action)
         {
             case "home":
-                await RenderAsync(client, chatId, messageId, Loc(lang, T.WelcomeMenu), MainMenuKeyboard(lang), ct);
+                await RenderAsync(bot, chatId, messageId, Loc(lang, T.WelcomeMenu), MainMenuKeyboard(lang), ct);
                 break;
             case "language":
-                await RenderAsync(client, chatId, messageId, Loc(lang, T.ChooseLanguage), LanguageKeyboard(), ct);
+                await RenderAsync(bot, chatId, messageId, Loc(lang, T.ChooseLanguage), LanguageKeyboard(), ct);
                 break;
             case "products":
-                await ShowCategoriesAsync(client, db, chatId, messageId, lang, ct);
+                await ShowCategoriesAsync(bot, db, chatId, messageId, lang, ct);
                 break;
             case "cat":
-                await ShowProductsAsync(client, db, chatId, messageId, lang, parts.ElementAtOrDefault(1) ?? "", ct);
+                await ShowProductsAsync(bot, db, chatId, messageId, lang, parts.ElementAtOrDefault(1) ?? "", ct);
                 break;
             case "prod":
-                await ShowProductAsync(client, db, chatId, messageId, lang, Guid.Parse(parts[1]), ct);
+                await ShowProductAsync(bot, db, chatId, messageId, lang, Guid.Parse(parts[1]), ct);
                 break;
             case "qty":
-                await ShowQuantityAsync(client, db, chatId, messageId, lang, Guid.Parse(parts[1]), ct);
+                await ShowQuantityAsync(bot, db, chatId, messageId, lang, Guid.Parse(parts[1]), ct);
                 break;
             case "addcart":
-                await AddToCartAsync(client, db, chatId, messageId, lang, Guid.Parse(parts[1]), int.Parse(parts[2]), ct);
+                await AddToCartAsync(bot, db, chatId, messageId, lang, Guid.Parse(parts[1]), int.Parse(parts[2]), ct);
                 break;
             case "cart":
-                await ShowCartAsync(client, db, chatId, messageId, lang, ct);
+                await ShowCartAsync(bot, db, chatId, messageId, lang, ct);
                 break;
             case "checkout":
-                await CheckoutAsync(client, db, chatId, messageId, lang, ct);
+                await CheckoutAsync(bot, db, chatId, messageId, lang, ct);
                 break;
             case "clearcart":
-                await ClearCartAsync(client, db, chatId, messageId, lang, ct);
+                await ClearCartAsync(bot, db, chatId, messageId, lang, ct);
                 break;
             case "orders":
-                await ShowOrdersAsync(client, db, chatId, messageId, lang, ct);
+                await ShowOrdersAsync(bot, db, chatId, messageId, lang, ct);
                 break;
             case "help":
-                await RenderAsync(client, chatId, messageId, Loc(lang, T.HelpText), BackHomeKeyboard(lang, "home"), ct);
+                await RenderAsync(bot, chatId, messageId, Loc(lang, T.HelpText), BackHomeKeyboard(lang, "home"), ct);
                 break;
             default:
-                await RenderAsync(client, chatId, messageId, Loc(lang, T.WelcomeMenu), MainMenuKeyboard(lang), ct);
+                await RenderAsync(bot, chatId, messageId, Loc(lang, T.WelcomeMenu), MainMenuKeyboard(lang), ct);
                 break;
         }
     }
 
-    private async Task SetLanguageAsync(HttpClient client, AppDbContext db, long chatId, string code, CancellationToken ct)
+    private async Task SetLanguageAsync(ITelegramBotClient bot, AppDbContext db, long chatId, string code, CancellationToken ct)
     {
         var lang = code switch
         {
@@ -224,7 +214,7 @@ public class TelegramShopBotService(
         }
         await db.SaveChangesAsync(ct);
 
-        await DockBarAndWelcomeAsync(client, chatId, lang, ct);
+        await DockBarAndWelcomeAsync(bot, chatId, lang, ct);
     }
 
     private async Task<BotLanguage> GetLanguageAsync(AppDbContext db, long chatId, CancellationToken ct)
@@ -233,7 +223,7 @@ public class TelegramShopBotService(
         return pref?.Language ?? BotLanguage.English;
     }
 
-    private async Task ShowCategoriesAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, CancellationToken ct)
+    private async Task ShowCategoriesAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, CancellationToken ct)
     {
         var categories = await db.Products
             .Where(p => p.IsActive && p.Category != null)
@@ -243,17 +233,17 @@ public class TelegramShopBotService(
 
         if (categories.Count == 0)
         {
-            await ShowProductsAsync(client, db, chatId, messageId, lang, "", ct);
+            await ShowProductsAsync(bot, db, chatId, messageId, lang, "", ct);
             return;
         }
 
-        var rows = categories.Select(c => new[] { Button($"📁 {c}", $"cat:{c}") }).ToList();
-        rows.Add([Button(Loc(lang, T.Home), "home")]);
+        var rows = categories.Select(c => new[] { InlineKeyboardButton.WithCallbackData($"📁 {c}", $"cat:{c}") }).ToList();
+        rows.Add([InlineKeyboardButton.WithCallbackData(Loc(lang, T.Home), "home")]);
 
-        await RenderAsync(client, chatId, messageId, Loc(lang, T.Categories), Keyboard(rows), ct);
+        await RenderAsync(bot, chatId, messageId, Loc(lang, T.Categories), new InlineKeyboardMarkup(rows), ct);
     }
 
-    private async Task ShowProductsAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, string category, CancellationToken ct)
+    private async Task ShowProductsAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, string category, CancellationToken ct)
     {
         var query = db.Products.Where(p => p.IsActive);
         if (!string.IsNullOrEmpty(category))
@@ -264,7 +254,7 @@ public class TelegramShopBotService(
 
         if (products.Count == 0)
         {
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.NoProducts), BackHomeKeyboard(lang, "products"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.NoProducts), BackHomeKeyboard(lang, "products"), ct);
             return;
         }
 
@@ -273,22 +263,20 @@ public class TelegramShopBotService(
             var label = p.Stock > 0
                 ? $"{p.Name} — {Money(p.Price)}"
                 : $"{p.Name} — {Loc(lang, T.OutOfStockShort)}";
-            return new[] { Button(label, $"prod:{p.Id:N}") };
+            return new[] { InlineKeyboardButton.WithCallbackData(label, $"prod:{p.Id:N}") };
         }).ToList();
-        rows.Add([Button(Loc(lang, T.Back), "products"), Button(Loc(lang, T.Home), "home")]);
+        rows.Add([InlineKeyboardButton.WithCallbackData(Loc(lang, T.Back), "products"), InlineKeyboardButton.WithCallbackData(Loc(lang, T.Home), "home")]);
 
-        var title = string.IsNullOrEmpty(category)
-            ? Loc(lang, T.PickProduct, "🛍")
-            : Loc(lang, T.PickProduct, category);
-        await RenderAsync(client, chatId, messageId, title, Keyboard(rows), ct);
+        var title = string.IsNullOrEmpty(category) ? Loc(lang, T.PickProduct, "🛍") : Loc(lang, T.PickProduct, category);
+        await RenderAsync(bot, chatId, messageId, title, new InlineKeyboardMarkup(rows), ct);
     }
 
-    private async Task ShowProductAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, Guid productId, CancellationToken ct)
+    private async Task ShowProductAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, Guid productId, CancellationToken ct)
     {
         var product = await db.Products.FindAsync([productId], ct);
         if (product is null)
         {
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.ProductGone), BackHomeKeyboard(lang, "products"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.ProductGone), BackHomeKeyboard(lang, "products"), ct);
             return;
         }
 
@@ -299,45 +287,45 @@ public class TelegramShopBotService(
             $"📦 {Loc(lang, T.ProductStock)}: {product.Stock}";
 
         var backTarget = product.Category is not null ? $"cat:{product.Category}" : "products";
-        var rows = new List<object[]>();
+        var rows = new List<InlineKeyboardButton[]>();
         if (product.Stock > 0)
         {
-            rows.Add([Button(Loc(lang, T.BuyButton), $"qty:{product.Id:N}")]);
+            rows.Add([InlineKeyboardButton.WithCallbackData(Loc(lang, T.BuyButton), $"qty:{product.Id:N}")]);
         }
-        rows.Add([Button(Loc(lang, T.Back), backTarget), Button(Loc(lang, T.Home), "home")]);
+        rows.Add([InlineKeyboardButton.WithCallbackData(Loc(lang, T.Back), backTarget), InlineKeyboardButton.WithCallbackData(Loc(lang, T.Home), "home")]);
 
-        await RenderAsync(client, chatId, messageId, text, Keyboard(rows), ct);
+        await RenderAsync(bot, chatId, messageId, text, new InlineKeyboardMarkup(rows), ct);
     }
 
-    private async Task ShowQuantityAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, Guid productId, CancellationToken ct)
+    private async Task ShowQuantityAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, Guid productId, CancellationToken ct)
     {
         var product = await db.Products.FindAsync([productId], ct);
         if (product is null || product.Stock <= 0)
         {
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.OutOfStock), BackHomeKeyboard(lang, "products"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.OutOfStock), BackHomeKeyboard(lang, "products"), ct);
             return;
         }
 
         var max = Math.Min(product.Stock, 5);
         var qtyButtons = Enumerable.Range(1, max)
-            .Select(n => Button(n.ToString(), $"addcart:{product.Id:N}:{n}"))
+            .Select(n => InlineKeyboardButton.WithCallbackData(n.ToString(), $"addcart:{product.Id:N}:{n}"))
             .ToArray();
 
-        List<object[]> rows =
+        List<InlineKeyboardButton[]> rows =
         [
             qtyButtons,
-            [Button(Loc(lang, T.Back), $"prod:{product.Id:N}"), Button(Loc(lang, T.Home), "home")]
+            [InlineKeyboardButton.WithCallbackData(Loc(lang, T.Back), $"prod:{product.Id:N}"), InlineKeyboardButton.WithCallbackData(Loc(lang, T.Home), "home")]
         ];
 
-        await RenderAsync(client, chatId, messageId, $"🛍 *{product.Name}*\n\n{Loc(lang, T.ChooseQuantity)}", Keyboard(rows), ct);
+        await RenderAsync(bot, chatId, messageId, $"🛍 *{product.Name}*\n\n{Loc(lang, T.ChooseQuantity)}", new InlineKeyboardMarkup(rows), ct);
     }
 
-    private async Task AddToCartAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, Guid productId, int quantity, CancellationToken ct)
+    private async Task AddToCartAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, Guid productId, int quantity, CancellationToken ct)
     {
         var product = await db.Products.FindAsync([productId], ct);
         if (product is null || product.Stock < quantity)
         {
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.OutOfStock), BackHomeKeyboard(lang, "products"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.OutOfStock), BackHomeKeyboard(lang, "products"), ct);
             return;
         }
 
@@ -352,31 +340,31 @@ public class TelegramShopBotService(
         }
         await db.SaveChangesAsync(ct);
 
-        List<object[]> rows =
+        List<InlineKeyboardButton[]> rows =
         [
-            [Button(Loc(lang, T.ViewCart), "cart")],
-            [Button(Loc(lang, T.ContinueShopping), "products"), Button(Loc(lang, T.Home), "home")]
+            [InlineKeyboardButton.WithCallbackData(Loc(lang, T.ViewCart), "cart")],
+            [InlineKeyboardButton.WithCallbackData(Loc(lang, T.ContinueShopping), "products"), InlineKeyboardButton.WithCallbackData(Loc(lang, T.Home), "home")]
         ];
-        await RenderAsync(client, chatId, messageId, $"{Loc(lang, T.AddedToCart)}\n\n🛍 {product.Name} × {quantity}", Keyboard(rows), ct);
+        await RenderAsync(bot, chatId, messageId, $"{Loc(lang, T.AddedToCart)}\n\n🛍 {product.Name} × {quantity}", new InlineKeyboardMarkup(rows), ct);
     }
 
-    private async Task ShowCartAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, CancellationToken ct)
+    private async Task ShowCartAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, CancellationToken ct)
     {
         var (lines, total, empty) = await BuildCartAsync(db, chatId, ct);
         if (empty)
         {
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.CartEmpty), BackHomeKeyboard(lang, "home"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.CartEmpty), BackHomeKeyboard(lang, "home"), ct);
             return;
         }
 
         var text = $"{Loc(lang, T.CartTitle)}\n\n{lines}\n\n*{Loc(lang, T.OrderTotal)}: {Money(total)}*";
-        List<object[]> rows =
+        List<InlineKeyboardButton[]> rows =
         [
-            [Button(Loc(lang, T.Checkout), "checkout")],
-            [Button(Loc(lang, T.ClearCart), "clearcart"), Button(Loc(lang, T.ContinueShopping), "products")],
-            [Button(Loc(lang, T.Home), "home")]
+            [InlineKeyboardButton.WithCallbackData(Loc(lang, T.Checkout), "checkout")],
+            [InlineKeyboardButton.WithCallbackData(Loc(lang, T.ClearCart), "clearcart"), InlineKeyboardButton.WithCallbackData(Loc(lang, T.ContinueShopping), "products")],
+            [InlineKeyboardButton.WithCallbackData(Loc(lang, T.Home), "home")]
         ];
-        await RenderAsync(client, chatId, messageId, text, Keyboard(rows), ct);
+        await RenderAsync(bot, chatId, messageId, text, new InlineKeyboardMarkup(rows), ct);
     }
 
     private async Task<(string Lines, decimal Total, bool Empty)> BuildCartAsync(AppDbContext db, long chatId, CancellationToken ct)
@@ -406,12 +394,12 @@ public class TelegramShopBotService(
         return (string.Join("\n", lines), total, lines.Count == 0);
     }
 
-    private async Task CheckoutAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, CancellationToken ct)
+    private async Task CheckoutAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, CancellationToken ct)
     {
         var cart = await db.CartItems.Where(c => c.ChatId == chatId.ToString()).ToListAsync(ct);
         if (cart.Count == 0)
         {
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.CartEmpty), BackHomeKeyboard(lang, "home"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.CartEmpty), BackHomeKeyboard(lang, "home"), ct);
             return;
         }
 
@@ -438,7 +426,7 @@ public class TelegramShopBotService(
         {
             db.CartItems.RemoveRange(cart);
             await db.SaveChangesAsync(ct);
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.OutOfStock), BackHomeKeyboard(lang, "home"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.OutOfStock), BackHomeKeyboard(lang, "home"), ct);
             return;
         }
 
@@ -448,20 +436,20 @@ public class TelegramShopBotService(
 
         var summary = string.Join("\n", order.Items.Select(i => $"• {i.ProductName} × {i.Quantity} — {Money(i.UnitPrice * i.Quantity)}"));
         var text = Loc(lang, T.OrderPlaced, summary, Loc(lang, T.OrderTotal), Money(order.Total), Loc(lang, T.OrderId), order.Id.ToString("N"));
-        await RenderAsync(client, chatId, messageId, text, BackHomeKeyboard(lang, "home"), ct);
+        await RenderAsync(bot, chatId, messageId, text, BackHomeKeyboard(lang, "home"), ct);
 
-        await NotifyAdminAsync(client, chatId, order, ct);
+        await NotifyAdminAsync(bot, chatId, order, ct);
     }
 
-    private async Task ClearCartAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, CancellationToken ct)
+    private async Task ClearCartAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, CancellationToken ct)
     {
         var cart = await db.CartItems.Where(c => c.ChatId == chatId.ToString()).ToListAsync(ct);
         db.CartItems.RemoveRange(cart);
         await db.SaveChangesAsync(ct);
-        await RenderAsync(client, chatId, messageId, Loc(lang, T.CartEmpty), BackHomeKeyboard(lang, "home"), ct);
+        await RenderAsync(bot, chatId, messageId, Loc(lang, T.CartEmpty), BackHomeKeyboard(lang, "home"), ct);
     }
 
-    private async Task ShowOrdersAsync(HttpClient client, AppDbContext db, long chatId, long? messageId, BotLanguage lang, CancellationToken ct)
+    private async Task ShowOrdersAsync(ITelegramBotClient bot, AppDbContext db, long chatId, int? messageId, BotLanguage lang, CancellationToken ct)
     {
         var orders = await db.Orders
             .Include(o => o.Items)
@@ -472,7 +460,7 @@ public class TelegramShopBotService(
 
         if (orders.Count == 0)
         {
-            await RenderAsync(client, chatId, messageId, Loc(lang, T.NoOrders), BackHomeKeyboard(lang, "home"), ct);
+            await RenderAsync(bot, chatId, messageId, Loc(lang, T.NoOrders), BackHomeKeyboard(lang, "home"), ct);
             return;
         }
 
@@ -481,14 +469,13 @@ public class TelegramShopBotService(
             string.Join("\n", o.Items.Select(i => $"• {i.ProductName} × {i.Quantity} — {Money(i.UnitPrice * i.Quantity)}")) +
             $"\n*{Loc(lang, T.OrderTotal)}: {Money(o.Total)}*"));
 
-        await RenderAsync(client, chatId, messageId, text, BackHomeKeyboard(lang, "home"), ct);
+        await RenderAsync(bot, chatId, messageId, text, BackHomeKeyboard(lang, "home"), ct);
     }
 
-    // Notifies the shop owner (if ShopBot:AdminChatId is set) when an order is placed.
-    private async Task NotifyAdminAsync(HttpClient client, long buyerChatId, Order order, CancellationToken ct)
+    private async Task NotifyAdminAsync(ITelegramBotClient bot, long buyerChatId, Order order, CancellationToken ct)
     {
         var adminChatId = configuration["ShopBot:AdminChatId"];
-        if (string.IsNullOrWhiteSpace(adminChatId))
+        if (string.IsNullOrWhiteSpace(adminChatId) || !long.TryParse(adminChatId, out var adminId))
         {
             return;
         }
@@ -497,7 +484,7 @@ public class TelegramShopBotService(
         var text = $"🔔 *New order*\nFrom chat: `{buyerChatId}`\n\n{summary}\n\n*Total: {Money(order.Total)}*\nOrder ID: `{order.Id:N}`";
         try
         {
-            await SendAsync(client, long.Parse(adminChatId), text, null, ct);
+            await bot.SendMessage(adminId, text, parseMode: ParseMode.Markdown, cancellationToken: ct);
         }
         catch (Exception ex)
         {
@@ -507,86 +494,69 @@ public class TelegramShopBotService(
 
     // --- welcome / hint ---
 
-    // Docks the bottom bar (a reply keyboard persists once sent) and greets. Replaces
-    // the current live menu so nothing stacks.
-    private async Task DockBarAndWelcomeAsync(HttpClient client, long chatId, BotLanguage lang, CancellationToken ct)
+    private async Task DockBarAndWelcomeAsync(ITelegramBotClient bot, long chatId, BotLanguage lang, CancellationToken ct)
     {
-        await ClearHintAsync(client, chatId, ct);
+        await ClearHintAsync(bot, chatId, ct);
         if (_lastMenu.TryRemove(chatId, out var oldId))
         {
-            await DeleteMessageAsync(client, chatId, oldId, ct);
+            await DeleteMessageAsync(bot, chatId, oldId, ct);
         }
 
-        var newId = await SendAsync(client, chatId, Loc(lang, T.WelcomePrompt), MainBarKeyboard(lang), ct);
-        if (newId.HasValue)
-        {
-            _lastMenu[chatId] = newId.Value;
-        }
+        var msg = await bot.SendMessage(chatId, Loc(lang, T.WelcomePrompt), parseMode: ParseMode.Markdown, replyMarkup: MainBarKeyboard(lang), cancellationToken: ct);
+        _lastMenu[chatId] = msg.MessageId;
     }
 
-    // A single non-stacking hint for stray text. If a hint is already showing, editing
-    // it to the same text is a no-op ("not modified"), so nothing new appears.
-    private async Task ShowHintAsync(HttpClient client, long chatId, BotLanguage lang, CancellationToken ct)
+    private async Task ShowHintAsync(ITelegramBotClient bot, long chatId, BotLanguage lang, CancellationToken ct)
     {
         var text = Loc(lang, T.UseMenu);
-        if (_hint.TryGetValue(chatId, out var hintId) && await TryEditAsync(client, chatId, hintId, text, null, ct))
+        if (_hint.TryGetValue(chatId, out var hintId) && await TryEditAsync(bot, chatId, hintId, text, null, ct))
         {
             return;
         }
 
-        var newId = await SendAsync(client, chatId, text, null, ct);
-        if (newId.HasValue)
-        {
-            _hint[chatId] = newId.Value;
-        }
+        var msg = await bot.SendMessage(chatId, text, cancellationToken: ct);
+        _hint[chatId] = msg.MessageId;
     }
 
-    private async Task ClearHintAsync(HttpClient client, long chatId, CancellationToken ct)
+    private async Task ClearHintAsync(ITelegramBotClient bot, long chatId, CancellationToken ct)
     {
         if (_hint.TryRemove(chatId, out var hintId))
         {
-            await DeleteMessageAsync(client, chatId, hintId, ct);
+            await DeleteMessageAsync(bot, chatId, hintId, ct);
         }
     }
 
     // --- keyboards ---
 
-    // Inline main menu (used on the Home screen so there are buttons under the message too).
-    private static object MainMenuKeyboard(BotLanguage lang) => Keyboard(
-    [
-        [Button(Loc(lang, T.BrowseProducts), "products")],
-        [Button(Loc(lang, T.ViewCart), "cart"), Button(Loc(lang, T.MyOrders), "orders")],
-        [Button(Loc(lang, T.Help), "help"), Button(Loc(lang, T.LanguageButton), "language")]
-    ]);
-
-    // Persistent reply keyboard docked at the bottom of the screen.
-    private static object MainBarKeyboard(BotLanguage lang) => new
+    private static InlineKeyboardMarkup MainMenuKeyboard(BotLanguage lang) => new(new[]
     {
-        keyboard = new object[]
-        {
-            new object[] { new { text = Loc(lang, T.BrowseProducts) } },
-            new object[] { new { text = Loc(lang, T.ViewCart) }, new { text = Loc(lang, T.MyOrders) } },
-            new object[] { new { text = Loc(lang, T.Help) }, new { text = Loc(lang, T.LanguageButton) } }
-        },
-        resize_keyboard = true,
-        is_persistent = true
+        new[] { InlineKeyboardButton.WithCallbackData(Loc(lang, T.BrowseProducts), "products") },
+        new[] { InlineKeyboardButton.WithCallbackData(Loc(lang, T.ViewCart), "cart"), InlineKeyboardButton.WithCallbackData(Loc(lang, T.MyOrders), "orders") },
+        new[] { InlineKeyboardButton.WithCallbackData(Loc(lang, T.Help), "help"), InlineKeyboardButton.WithCallbackData(Loc(lang, T.LanguageButton), "language") }
+    });
+
+    private static ReplyKeyboardMarkup MainBarKeyboard(BotLanguage lang) => new(new[]
+    {
+        new[] { new KeyboardButton(Loc(lang, T.BrowseProducts)) },
+        new[] { new KeyboardButton(Loc(lang, T.ViewCart)), new KeyboardButton(Loc(lang, T.MyOrders)) },
+        new[] { new KeyboardButton(Loc(lang, T.Help)), new KeyboardButton(Loc(lang, T.LanguageButton)) }
+    })
+    {
+        ResizeKeyboard = true,
+        IsPersistent = true
     };
 
-    private static object LanguageKeyboard() => Keyboard(
-    [
-        [Button(BotLocalization.Get(BotLanguage.English, T.LanguageName), "lang:en")],
-        [Button(BotLocalization.Get(BotLanguage.Russian, T.LanguageName), "lang:ru")],
-        [Button(BotLocalization.Get(BotLanguage.Persian, T.LanguageName), "lang:fa")]
-    ]);
+    private static InlineKeyboardMarkup LanguageKeyboard() => new(new[]
+    {
+        new[] { InlineKeyboardButton.WithCallbackData(BotLocalization.Get(BotLanguage.English, T.LanguageName), "lang:en") },
+        new[] { InlineKeyboardButton.WithCallbackData(BotLocalization.Get(BotLanguage.Russian, T.LanguageName), "lang:ru") },
+        new[] { InlineKeyboardButton.WithCallbackData(BotLocalization.Get(BotLanguage.Persian, T.LanguageName), "lang:fa") }
+    });
 
-    private static object BackHomeKeyboard(BotLanguage lang, string backTarget) => Keyboard(
-    [
-        [Button(Loc(lang, T.Back), backTarget), Button(Loc(lang, T.Home), "home")]
-    ]);
-
-    private static object Keyboard(IEnumerable<object[]> rows) => new { inline_keyboard = rows };
-
-    private static object Button(string text, string callbackData) => new { text, callback_data = callbackData };
+    private static InlineKeyboardMarkup BackHomeKeyboard(BotLanguage lang, string backTarget) => new(new[]
+    {
+        new[] { InlineKeyboardButton.WithCallbackData(Loc(lang, T.Back), backTarget), InlineKeyboardButton.WithCallbackData(Loc(lang, T.Home), "home") }
+    });
 
     private static Dictionary<string, string> BuildBarActions()
     {
@@ -602,14 +572,14 @@ public class TelegramShopBotService(
         return map;
     }
 
-    // --- render / Telegram calls ---
+    // --- render helpers ---
 
-    // The one place menus are shown. With a messageId (a button tap) it edits that
-    // message in place; without one (a bottom-bar tap) it moves the single live menu
-    // to the bottom. Either way there's never more than one menu message.
-    private async Task RenderAsync(HttpClient client, long chatId, long? messageId, string text, object inlineKeyboard, CancellationToken ct)
+    // The one place inline menus are shown. With a messageId (a button tap) it edits
+    // that message in place; without one (a bottom-bar tap) it moves the single live
+    // menu to the bottom. Never more than one menu message.
+    private async Task RenderAsync(ITelegramBotClient bot, long chatId, int? messageId, string text, InlineKeyboardMarkup keyboard, CancellationToken ct)
     {
-        if (messageId is long id && await TryEditAsync(client, chatId, id, text, inlineKeyboard, ct))
+        if (messageId is int id && await TryEditAsync(bot, chatId, id, text, keyboard, ct))
         {
             _lastMenu[chatId] = id;
             return;
@@ -617,75 +587,42 @@ public class TelegramShopBotService(
 
         if (_lastMenu.TryRemove(chatId, out var oldId) && oldId != messageId)
         {
-            await DeleteMessageAsync(client, chatId, oldId, ct);
+            await DeleteMessageAsync(bot, chatId, oldId, ct);
         }
 
-        var newId = await SendAsync(client, chatId, text, inlineKeyboard, ct);
-        if (newId.HasValue)
-        {
-            _lastMenu[chatId] = newId.Value;
-        }
+        var msg = await bot.SendMessage(chatId, text, parseMode: ParseMode.Markdown, replyMarkup: keyboard, cancellationToken: ct);
+        _lastMenu[chatId] = msg.MessageId;
     }
 
-    private async Task<long?> SendAsync(HttpClient client, long chatId, string text, object? replyMarkup, CancellationToken ct)
+    private async Task<bool> TryEditAsync(ITelegramBotClient bot, long chatId, int messageId, string text, InlineKeyboardMarkup? keyboard, CancellationToken ct)
     {
-        object body = replyMarkup is null
-            ? new { chat_id = chatId, text, parse_mode = "Markdown" }
-            : new { chat_id = chatId, text, parse_mode = "Markdown", reply_markup = replyMarkup };
-        using var content = JsonContent.Create(body);
-        var response = await client.PostAsync($"{_baseUrl}/sendMessage", content, ct);
-
         try
         {
-            var responseBody = await response.Content.ReadAsStringAsync(ct);
-            using var json = JsonDocument.Parse(responseBody);
-            if (json.RootElement.TryGetProperty("result", out var result) &&
-                result.TryGetProperty("message_id", out var mid))
-            {
-                return mid.GetInt64();
-            }
-        }
-        catch (JsonException) { /* couldn't parse - just won't track this id */ }
-
-        return null;
-    }
-
-    private async Task<bool> TryEditAsync(HttpClient client, long chatId, long messageId, string text, object? inlineKeyboard, CancellationToken ct)
-    {
-        object body = inlineKeyboard is null
-            ? new { chat_id = chatId, message_id = messageId, text, parse_mode = "Markdown" }
-            : new { chat_id = chatId, message_id = messageId, text, parse_mode = "Markdown", reply_markup = inlineKeyboard };
-        using var content = JsonContent.Create(body);
-        var response = await client.PostAsync($"{_baseUrl}/editMessageText", content, ct);
-
-        if (response.IsSuccessStatusCode)
-        {
+            await bot.EditMessageText(chatId, messageId, text, parseMode: ParseMode.Markdown, replyMarkup: keyboard, cancellationToken: ct);
             return true;
         }
-
-        // "message is not modified" means the content is already correct - treat as
-        // success so we don't send a duplicate.
-        var responseBody = await response.Content.ReadAsStringAsync(ct);
-        return responseBody.Contains("message is not modified");
+        catch (ApiRequestException ex) when (ex.Message.Contains("message is not modified"))
+        {
+            // Content is already correct - treat as success so nothing new is sent.
+            return true;
+        }
+        catch (ApiRequestException)
+        {
+            // Message can't be edited (too old / deleted) - caller falls back to send.
+            return false;
+        }
     }
 
-    private async Task DeleteMessageAsync(HttpClient client, long chatId, long messageId, CancellationToken ct)
+    private async Task DeleteMessageAsync(ITelegramBotClient bot, long chatId, int messageId, CancellationToken ct)
     {
         try
         {
-            using var content = JsonContent.Create(new { chat_id = chatId, message_id = messageId });
-            await client.PostAsync($"{_baseUrl}/deleteMessage", content, ct);
+            await bot.DeleteMessage(chatId, messageId, ct);
         }
         catch (Exception ex)
         {
             logger.LogDebug(ex, "Could not delete message {MessageId}", messageId);
         }
-    }
-
-    private async Task AnswerCallbackAsync(HttpClient client, string callbackQueryId, CancellationToken ct)
-    {
-        using var content = JsonContent.Create(new { callback_query_id = callbackQueryId });
-        await client.PostAsync($"{_baseUrl}/answerCallbackQuery", content, ct);
     }
 
     private static string Loc(BotLanguage lang, T key) => BotLocalization.Get(lang, key);
