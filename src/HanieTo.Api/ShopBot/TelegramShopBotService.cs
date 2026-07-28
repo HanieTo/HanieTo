@@ -93,21 +93,18 @@ public class TelegramShopBotService(
         var text = (message.Text ?? "").Trim();
 
         var pref = await db.ChatPreferences.FirstOrDefaultAsync(p => p.ChatId == chatId.ToString(), ct);
-        if (pref is null)
+
+        // First contact OR /start: dock the bottom bar immediately (default English if
+        // no language chosen yet) and greet, so the menu is visible from the very first
+        // screen. Language can be changed any time via the 🌐 button.
+        if (pref is null || text.StartsWith('/'))
         {
-            // First contact - ask for a language. The bottom bar docks once chosen.
-            await RenderAsync(bot, chatId, null, BotLocalization.Get(BotLanguage.English, T.ChooseLanguage), LanguageKeyboard(), ct);
+            var startLang = pref?.Language ?? BotLanguage.English;
+            await DockBarAndWelcomeAsync(bot, chatId, startLang, ct);
             return;
         }
 
         var lang = pref.Language;
-
-        // /start (or any command) re-docks the bottom bar and greets.
-        if (text.StartsWith('/'))
-        {
-            await DockBarAndWelcomeAsync(bot, chatId, lang, ct);
-            return;
-        }
 
         // A tap on the bottom bar arrives as text matching a button label.
         if (BarActions.TryGetValue(text, out var action))
