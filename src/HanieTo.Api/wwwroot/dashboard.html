@@ -33,6 +33,13 @@
   .content-title { font-weight: 600; margin-bottom: 0.2rem; }
   .attempts { font-size: 0.8rem; color: #777; margin-top: 0.4rem; }
   .refresh { float: right; font-size: 0.85rem; color: #888; cursor: pointer; }
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 1rem; margin-bottom: 0.75rem; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.6rem; }
+  .form-grid label { font-size: 0.8rem; color: #555; display: block; margin-bottom: 0.15rem; }
+  .form-grid input, .form-grid select { width: 100%; padding: 0.4rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+  .form-hint { font-size: 0.8rem; color: #888; margin-top: 0.5rem; grid-column: 1 / -1; }
+  .form-actions { grid-column: 1 / -1; margin-top: 0.3rem; }
+  .form-actions button { padding: 0.45rem 1.1rem; border-radius: 5px; border: 1px solid #16181d; background: #16181d; color: #fff; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -41,6 +48,7 @@
   <button data-tab="catalog" class="active">Catalog</button>
   <button data-tab="orders">Orders</button>
   <button data-tab="content">Content &amp; Publishing</button>
+  <button data-tab="channels">Channels</button>
 </nav>
 <main>
   <section id="catalog" class="active">
@@ -54,6 +62,46 @@
   <section id="content">
     <span class="refresh" onclick="loadContent()">↻ refresh</span>
     <div id="content-body"></div>
+  </section>
+  <section id="channels">
+    <span class="refresh" onclick="loadChannelsTab()">↻ refresh</span>
+    <div id="channels-list"></div>
+    <div class="card">
+      <strong>Add a channel</strong>
+      <div class="form-grid">
+        <div>
+          <label>Type</label>
+          <select id="new-ch-type" onchange="updateChannelHint()">
+            <option>Telegram</option><option>Discord</option><option>Slack</option>
+            <option>Instagram</option><option>Twitter</option><option>Bale</option>
+            <option>Eitaa</option><option>Rubika</option><option>WhatsApp</option>
+            <option>Divar</option><option>LinkedIn</option><option>Pinterest</option><option>TikTok</option>
+          </select>
+        </div>
+        <div>
+          <label>Display name</label>
+          <input id="new-ch-name" placeholder="e.g. My Shop Channel">
+        </div>
+        <div>
+          <label id="label-apikey">API key / token / webhook URL</label>
+          <input id="new-ch-apikey" type="password">
+        </div>
+        <div>
+          <label id="label-external">External ID / chat ID</label>
+          <input id="new-ch-external" placeholder="e.g. @mychannel">
+        </div>
+        <div>
+          <label>API secret (if needed)</label>
+          <input id="new-ch-apisecret" type="password">
+        </div>
+        <div>
+          <label>Access token secret (if needed)</label>
+          <input id="new-ch-tokensecret" type="password">
+        </div>
+        <div id="channel-hint" class="form-hint"></div>
+        <div class="form-actions"><button onclick="addChannel()">Add channel</button></div>
+      </div>
+    </div>
   </section>
 </main>
 <script>
@@ -146,6 +194,70 @@ async function loadContent() {
   }
 }
 
+const CHANNEL_HINTS = {
+  Telegram: 'API key = bot token from @BotFather. External ID = the channel handle (e.g. @mychannel) or numeric chat id.',
+  Discord: 'API key = the webhook URL (Server Settings → Integrations → Webhooks). External ID not needed.',
+  Slack: 'API key = the Incoming Webhook URL. External ID not needed.',
+};
+
+function updateChannelHint() {
+  const type = document.getElementById('new-ch-type').value;
+  document.getElementById('channel-hint').textContent =
+    CHANNEL_HINTS[type] || 'Check the channel’s publisher implementation for which fields it reads (ApiKey / ApiSecret / AccessToken / AccessTokenSecret / ExternalId).';
+}
+
+async function loadChannelsTab() {
+  const el = document.getElementById('channels-list');
+  el.innerHTML = 'Loading…';
+  try {
+    channelsCache = null;
+    const channels = await getChannels();
+    el.innerHTML = channels.length
+      ? `<table><thead><tr><th>Name</th><th>Type</th><th>Enabled</th><th></th></tr></thead><tbody>
+          ${channels.map(c => `<tr><td>${escapeHtml(c.displayName)}</td><td>${escapeHtml(c.type)}</td><td>${c.isEnabled ? 'yes' : 'no'}</td>
+            <td><span class="refresh" onclick="removeChannel('${c.id}')">remove</span></td></tr>`).join('')}
+        </tbody></table>`
+      : '<div class="empty">No channels configured yet - add one below.</div>';
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load channels: ${escapeHtml(e.message)}</div>`;
+  }
+  updateChannelHint();
+}
+
+async function addChannel() {
+  const body = {
+    type: document.getElementById('new-ch-type').value,
+    displayName: document.getElementById('new-ch-name').value,
+    apiKey: document.getElementById('new-ch-apikey').value || null,
+    apiSecret: document.getElementById('new-ch-apisecret').value || null,
+    accessToken: null,
+    accessTokenSecret: document.getElementById('new-ch-tokensecret').value || null,
+    externalId: document.getElementById('new-ch-external').value || null,
+  };
+  if (!body.displayName) { alert('Give it a display name first.'); return; }
+  const res = await fetch('/api/channels', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { alert('Could not add channel: ' + await res.text()); return; }
+  document.getElementById('new-ch-name').value = '';
+  document.getElementById('new-ch-apikey').value = '';
+  document.getElementById('new-ch-apisecret').value = '';
+  document.getElementById('new-ch-tokensecret').value = '';
+  document.getElementById('new-ch-external').value = '';
+  channelsCache = null;
+  await loadChannelsTab();
+}
+
+async function removeChannel(id) {
+  if (!confirm('Remove this channel?')) return;
+  const res = await fetch(`/api/channels/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 404) { alert('Could not remove channel: ' + await res.text()); return; }
+  channelsCache = null;
+  await loadChannelsTab();
+}
+
 async function publish(contentId) {
   const select = document.getElementById(`ch-${contentId}`);
   const channelIds = Array.from(select.selectedOptions).map(o => o.value);
@@ -160,6 +272,7 @@ async function publish(contentId) {
 loadCatalog();
 loadOrders();
 loadContent();
+loadChannelsTab();
 </script>
 </body>
 </html>

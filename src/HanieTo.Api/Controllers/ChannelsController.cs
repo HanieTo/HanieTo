@@ -46,4 +46,18 @@ public class ChannelsController(AppDbContext db) : ControllerBase
         var channel = await db.Channels.FindAsync(id);
         return channel is null ? NotFound() : Ok(channel);
     }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var channel = await db.Channels.FindAsync(id);
+        if (channel is null)
+        {
+            return NotFound();
+        }
+
+        db.Channels.Remove(channel);
+        await db.SaveChangesAsync();
+        return NoContent();
+    }
 }
