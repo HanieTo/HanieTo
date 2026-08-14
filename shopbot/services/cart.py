@@ -57,17 +57,19 @@ class CartService:
             quantity=callback_data.quantity,
             cart_id=cart.id
         )
+        available_qty = await ItemRepository.get_available_qty(callback_data.item_type,
+                                                               cart_item.category_id,
+                                                               cart_item.subcategory_id,
+                                                               session)
         current_cart_content = await CartItemRepository.get_current_cart_content(cart_item, cart, session)
         if current_cart_content:
-            available_qty = await ItemRepository.get_available_qty(callback_data.item_type,
-                                                                   cart_item.category_id,
-                                                                   cart_item.subcategory_id,
-                                                                   session)
             current_cart_content.quantity = current_cart_content.quantity + cart_item.quantity
             if current_cart_content.quantity > available_qty:
                 current_cart_content.quantity = available_qty
             await CartItemRepository.update(current_cart_content, session)
         else:
+            if cart_item.quantity > available_qty:
+                cart_item.quantity = available_qty
             await CartItemRepository.create(cart_item, session)
         await session_commit(session)
         caption = get_text(language, BotEntity.USER, "item_added_to_cart")

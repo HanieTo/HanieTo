@@ -40,6 +40,12 @@ class BuyService:
         user = await UserRepository.get_by_tgid(refund_data.telegram_id, session)
         user.consume_records = user.consume_records - refund_data.total_price
         await UserRepository.update(user, session)
+        # Refunding an order must give the stock back, or every refund
+        # permanently shrinks the catalog.
+        refunded_items = list((await ItemRepository.get_by_id_map(refund_data.item_ids, session)).values())
+        for item in refunded_items:
+            item.is_sold = False
+        await ItemRepository.update(refunded_items, session)
         await session_commit(session)
         await NotificationService.refund(refund_data)
         if refund_data.telegram_username:

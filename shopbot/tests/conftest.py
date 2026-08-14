@@ -38,6 +38,15 @@ def _build_config_module() -> ModuleType:
     config.BNB_FORWARDING_ADDRESS = "bnb-forward"
     config.ADMIN_ID_LIST = [1]
     config.TOKEN = "token"
+    config.PUBLISHING_API_URL = "http://host.docker.internal:5169"
+    config.MIN_REFERRER_TOTAL_DEPOSIT = 500
+    config.REFERRAL_BONUS_PERCENT = 5
+    config.REFERRAL_BONUS_DEPOSIT_LIMIT = 3
+    config.REFERRER_BONUS_PERCENT = 3
+    config.REFERRER_BONUS_DEPOSIT_LIMIT = 5
+    config.REFERRAL_BONUS_CAP_PERCENT = 7
+    config.REFERRER_BONUS_CAP_PERCENT = 7
+    config.TOTAL_BONUS_CAP_PERCENT = 12
     config.MULTIBOT = False
     config.TELEGRAM_PROXY_URL = None
     config.REDIS_HOST = "localhost"

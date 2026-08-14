@@ -17,6 +17,7 @@ from repositories.category import CategoryRepository
 from repositories.item import ItemRepository
 from repositories.subcategory import SubcategoryRepository
 from services.notification import NotificationService
+from services.publishing_hook import draft_content_for_items
 from utils.utils import get_text
 
 
@@ -174,20 +175,25 @@ class InventoryManagementService:
                 if item_type == ItemType.PHYSICAL:
                     items_list = [ItemDTO(item_type=item_type,
                                           category_id=category.id,
+                                          category_name=category.name,
                                           subcategory_id=subcategory.id,
+                                          subcategory_name=subcategory.name,
                                           description=state_data['description'],
                                           price=float(state_data['price']),
                                           private_data=None) for _ in range(state_data['items_qty'])]
                 else:
                     items_list = [ItemDTO(item_type=item_type,
                                           category_id=category.id,
+                                          category_name=category.name,
                                           subcategory_id=subcategory.id,
+                                          subcategory_name=subcategory.name,
                                           description=state_data['description'],
                                           price=float(state_data['price']),
                                           private_data=private_data) for private_data in
                                   state_data['private_data'].split('\n')]
                 await ItemRepository.add_many(items_list, session)
                 await session_commit(session)
+                await draft_content_for_items(items_list)
                 await state.clear()
                 msg = get_text(language, BotEntity.ADMIN, "add_items_success").format(adding_result=len(items_list))
                 cancel_button.text = get_text(language, BotEntity.COMMON, "back_button")

@@ -109,7 +109,7 @@ class SubcategoryService:
             currency_sym=config.CURRENCY.get_localized_symbol()
         )
         kb_builder = InlineKeyboardBuilder()
-        for i in range(1, 11):
+        for i in range(1, min(available_qty, 10) + 1):
             kb_builder.button(text=str(i), callback_data=AllCategoriesCallback.create(
                 level=callback_data.level + 1,
                 item_type=item_dto.item_type,

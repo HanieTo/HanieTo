@@ -117,7 +117,7 @@ class BuyRepository:
                        User.language)
                 .join(BuyItem, BuyItem.buy_id == Buy.id)
                 .join(User, User.id == Buy.buyer_id)
-                .join(Item, Item.id.in_(BuyItem.item_ids))
+                .join(Item, Item.id == any_(BuyItem.item_ids))
                 .join(Subcategory, Subcategory.id == Item.subcategory_id)
                 .where(Buy.status != BuyStatus.REFUNDED, Buy.id == buy_id)
                 .limit(1))
