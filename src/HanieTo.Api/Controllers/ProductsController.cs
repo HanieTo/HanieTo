@@ -5,75 +5,45 @@ using Microsoft.EntityFrameworkCore;
 
 namespace HanieTo.Api.Controllers;
 
-public record CreateProductRequest(string Name, string? Description, decimal Price, int Stock, string? Category, string? PhotoUrl);
-public record UpdateStockRequest(int Stock);
-
+// Read-only view of the bot's product catalog (see ShopCatalogDbContext).
+// Products are managed in the bot's own admin panel, not here.
 [ApiController]
 [Route("api/[controller]")]
-public class ProductsController(AppDbContext db) : ControllerBase
+public class ProductsController(ShopCatalogDbContext catalog) : ControllerBase
 {
-    [HttpPost]
-    public async Task<IActionResult> Create(CreateProductRequest request)
-    {
-        var product = new Product
-        {
-            Name = request.Name,
-            Description = request.Description,
-            Price = request.Price,
-            Stock = request.Stock,
-            Category = request.Category,
-            PhotoUrl = request.PhotoUrl
-        };
-
-        db.Products.Add(product);
-        await db.SaveChangesAsync();
-
-        return CreatedAtAction(nameof(GetById), new { id = product.Id }, product);
-    }
-
     [HttpGet]
     public async Task<IActionResult> GetAll([FromQuery] string? category)
     {
-        var query = db.Products.Where(p => p.IsActive);
+        var itemsQuery =
+            from item in catalog.Items
+            join cat in catalog.Categories on item.CategoryId equals cat.Id
+            join sub in catalog.Subcategories on item.SubcategoryId equals sub.Id
+            select new { item, CategoryName = cat.Name, SubcategoryName = sub.Name };
+
         if (!string.IsNullOrWhiteSpace(category))
         {
-            query = query.Where(p => p.Category == category);
+            itemsQuery = itemsQuery.Where(x => x.CategoryName == category);
         }
 
-        return Ok(await query.ToListAsync());
+        var products = await itemsQuery
+            .GroupBy(x => new { x.item.Description, x.item.Price, x.CategoryName, x.SubcategoryName })
+            .Select(g => new Product
+            {
+                Name = g.Key.Description,
+                Category = g.Key.CategoryName,
+                Subcategory = g.Key.SubcategoryName,
+                Price = g.Key.Price,
+                Stock = g.Count(x => !x.item.IsSold)
+            })
+            .ToListAsync();
+
+        return Ok(products);
     }
 
     [HttpGet("categories")]
     public async Task<IActionResult> GetCategories()
     {
-        var categories = await db.Products
-            .Where(p => p.IsActive && p.Category != null)
-            .Select(p => p.Category!)
-            .Distinct()
-            .ToListAsync();
-
+        var categories = await catalog.Categories.Select(c => c.Name).ToListAsync();
         return Ok(categories);
-    }
-
-    [HttpGet("{id:guid}")]
-    public async Task<IActionResult> GetById(Guid id)
-    {
-        var product = await db.Products.FindAsync(id);
-        return product is null ? NotFound() : Ok(product);
-    }
-
-    [HttpPut("{id:guid}/stock")]
-    public async Task<IActionResult> UpdateStock(Guid id, UpdateStockRequest request)
-    {
-        var product = await db.Products.FindAsync(id);
-        if (product is null)
-        {
-            return NotFound();
-        }
-
-        product.Stock = request.Stock;
-        await db.SaveChangesAsync();
-
-        return Ok(product);
     }
 }

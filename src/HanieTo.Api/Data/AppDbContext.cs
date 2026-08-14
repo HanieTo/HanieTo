@@ -8,11 +8,6 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<Content> Contents => Set<Content>();
     public DbSet<Channel> Channels => Set<Channel>();
     public DbSet<PublishAttempt> PublishAttempts => Set<PublishAttempt>();
-    public DbSet<Product> Products => Set<Product>();
-    public DbSet<Order> Orders => Set<Order>();
-    public DbSet<OrderItem> OrderItems => Set<OrderItem>();
-    public DbSet<ChatPreference> ChatPreferences => Set<ChatPreference>();
-    public DbSet<CartItem> CartItems => Set<CartItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -25,17 +20,5 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             .HasOne(pa => pa.Channel)
             .WithMany()
             .HasForeignKey(pa => pa.ChannelId);
-
-        modelBuilder.Entity<Order>()
-            .HasMany(o => o.Items)
-            .WithOne()
-            .HasForeignKey(i => i.OrderId);
-
-        modelBuilder.Entity<Order>()
-            .Ignore(o => o.Total);
-
-        modelBuilder.Entity<ChatPreference>()
-            .HasIndex(cp => cp.ChatId)
-            .IsUnique();
     }
 }

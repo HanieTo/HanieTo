@@ -17,27 +17,6 @@ namespace HanieTo.Api.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
 
-            modelBuilder.Entity("HanieTo.Api.Domain.CartItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ChatId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("CartItems");
-                });
-
             modelBuilder.Entity("HanieTo.Api.Domain.Channel", b =>
                 {
                     b.Property<Guid>("Id")
@@ -74,27 +53,6 @@ namespace HanieTo.Api.Migrations
                     b.ToTable("Channels");
                 });
 
-            modelBuilder.Entity("HanieTo.Api.Domain.ChatPreference", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ChatId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Language")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ChatId")
-                        .IsUnique();
-
-                    b.ToTable("ChatPreferences");
-                });
-
             modelBuilder.Entity("HanieTo.Api.Domain.Content", b =>
                 {
                     b.Property<Guid>("Id")
@@ -118,89 +76,6 @@ namespace HanieTo.Api.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Contents");
-                });
-
-            modelBuilder.Entity("HanieTo.Api.Domain.Order", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("BuyerChatId")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Orders");
-                });
-
-            modelBuilder.Entity("HanieTo.Api.Domain.OrderItem", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("OrderId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<Guid>("ProductId")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("ProductName")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Quantity")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<decimal>("UnitPrice")
-                        .HasColumnType("TEXT");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("OrderId");
-
-                    b.ToTable("OrderItems");
-                });
-
-            modelBuilder.Entity("HanieTo.Api.Domain.Product", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Category")
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("Description")
-                        .HasColumnType("TEXT");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("INTEGER");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasColumnType("TEXT");
-
-                    b.Property<string>("PhotoUrl")
-                        .HasColumnType("TEXT");
-
-                    b.Property<decimal>("Price")
-                        .HasColumnType("TEXT");
-
-                    b.Property<int>("Stock")
-                        .HasColumnType("INTEGER");
-
-                    b.HasKey("Id");
-
-                    b.ToTable("Products");
                 });
 
             modelBuilder.Entity("HanieTo.Api.Domain.PublishAttempt", b =>
@@ -236,15 +111,6 @@ namespace HanieTo.Api.Migrations
                     b.ToTable("PublishAttempts");
                 });
 
-            modelBuilder.Entity("HanieTo.Api.Domain.OrderItem", b =>
-                {
-                    b.HasOne("HanieTo.Api.Domain.Order", null)
-                        .WithMany("Items")
-                        .HasForeignKey("OrderId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-                });
-
             modelBuilder.Entity("HanieTo.Api.Domain.PublishAttempt", b =>
                 {
                     b.HasOne("HanieTo.Api.Domain.Channel", "Channel")
@@ -265,11 +131,6 @@ namespace HanieTo.Api.Migrations
             modelBuilder.Entity("HanieTo.Api.Domain.Content", b =>
                 {
                     b.Navigation("PublishAttempts");
-                });
-
-            modelBuilder.Entity("HanieTo.Api.Domain.Order", b =>
-                {
-                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }

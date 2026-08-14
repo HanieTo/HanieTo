@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using EFCore.NamingConventions;
 using HanieTo.Api.Data;
 using HanieTo.Api.Publishing;
 using HanieTo.Api.Publishing.Publishers;
@@ -16,6 +17,15 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=HanieTo.db"));
+
+// Read-only connection to the bot's Postgres database (the catalog's source
+// of truth - see Data/ShopCatalogDbContext.cs). Connection string comes from
+// user-secrets in Development, since it contains the bot's DB password.
+builder.Services.AddDbContext<ShopCatalogDbContext>(options =>
+    options.UseNpgsql(builder.Configuration.GetConnectionString("ShopCatalog")
+        ?? throw new InvalidOperationException("Missing ConnectionStrings:ShopCatalog (set via 'dotnet user-secrets set ConnectionStrings:ShopCatalog \"...\"')."))
+    // The bot's tables use snake_case columns (SQLAlchemy/Alembic default).
+    .UseSnakeCaseNamingConvention());
 
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<IChannelPublisher, InstagramPublisher>();
