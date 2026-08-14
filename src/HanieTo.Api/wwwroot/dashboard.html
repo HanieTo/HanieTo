@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OmniCommerce Dashboard</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 0 0 3rem; background: #f6f7f9; color: #1a1a1a; }
+  header { background: #16181d; color: #fff; padding: 1rem 1.5rem; }
+  header h1 { margin: 0; font-size: 1.25rem; }
+  nav { display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #fff; border-bottom: 1px solid #e2e2e2; position: sticky; top: 0; }
+  nav button { border: none; background: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem; color: #444; }
+  nav button.active { background: #16181d; color: #fff; }
+  main { max-width: 1000px; margin: 1.5rem auto; padding: 0 1.5rem; }
+  section { display: none; }
+  section.active { display: block; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  th { background: #fafafa; font-weight: 600; color: #555; }
+  tr:last-child td { border-bottom: none; }
+  .empty { padding: 2rem; text-align: center; color: #888; background: #fff; border-radius: 8px; }
+  .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .badge-draft { background: #fff3cd; color: #856404; }
+  .badge-published { background: #d4edda; color: #155724; }
+  .badge-failed { background: #f8d7da; color: #721c24; }
+  .badge-publishing { background: #d1ecf1; color: #0c5460; }
+  .stock-out { color: #b00020; font-weight: 600; }
+  .publish-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.4rem; }
+  .publish-row select { min-width: 160px; padding: 0.3rem; }
+  .publish-row button { padding: 0.3rem 0.8rem; border-radius: 5px; border: 1px solid #16181d; background: #16181d; color: #fff; cursor: pointer; }
+  .content-body { color: #555; white-space: pre-wrap; margin: 0.3rem 0; }
+  .content-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 1rem; margin-bottom: 0.75rem; }
+  .content-title { font-weight: 600; margin-bottom: 0.2rem; }
+  .attempts { font-size: 0.8rem; color: #777; margin-top: 0.4rem; }
+  .refresh { float: right; font-size: 0.85rem; color: #888; cursor: pointer; }
+</style>
+</head>
+<body>
+<header><h1>OmniCommerce Dashboard</h1></header>
+<nav>
+  <button data-tab="catalog" class="active">Catalog</button>
+  <button data-tab="orders">Orders</button>
+  <button data-tab="content">Content &amp; Publishing</button>
+</nav>
+<main>
+  <section id="catalog" class="active">
+    <span class="refresh" onclick="loadCatalog()">↻ refresh</span>
+    <div id="catalog-body"></div>
+  </section>
+  <section id="orders">
+    <span class="refresh" onclick="loadOrders()">↻ refresh</span>
+    <div id="orders-body"></div>
+  </section>
+  <section id="content">
+    <span class="refresh" onclick="loadContent()">↻ refresh</span>
+    <div id="content-body"></div>
+  </section>
+</main>
+<script>
+const tabs = document.querySelectorAll('nav button');
+const sections = document.querySelectorAll('main section');
+tabs.forEach(btn => btn.addEventListener('click', () => {
+  tabs.forEach(b => b.classList.remove('active'));
+  sections.forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(btn.dataset.tab).classList.add('active');
+}));
+
+function escapeHtml(s) {
+  return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function loadCatalog() {
+  const el = document.getElementById('catalog-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const products = await (await fetch('/api/products')).json();
+    if (!products.length) { el.innerHTML = '<div class="empty">No products yet.</div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Name</th><th>Category</th><th>Subcategory</th><th>Price</th><th>Stock</th></tr></thead><tbody>
+      ${products.map(p => `<tr>
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.category)}</td>
+        <td>${escapeHtml(p.subcategory)}</td>
+        <td>${p.price.toFixed(2)}</td>
+        <td class="${p.stock === 0 ? 'stock-out' : ''}">${p.stock}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load catalog: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadOrders() {
+  const el = document.getElementById('orders-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const orders = await (await fetch('/api/orders')).json();
+    if (!orders.length) { el.innerHTML = '<div class="empty">No orders yet.</div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>#</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead><tbody>
+      ${orders.map(o => `<tr>
+        <td>${o.id}</td>
+        <td>${escapeHtml(o.buyer)}</td>
+        <td>${o.totalPrice.toFixed(2)}</td>
+        <td>${escapeHtml(o.status)}</td>
+        <td>${o.buyDatetime ? new Date(o.buyDatetime).toLocaleString() : '-'}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load orders: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+let channelsCache = null;
+async function getChannels() {
+  if (!channelsCache) channelsCache = await (await fetch('/api/channels')).json();
+  return channelsCache;
+}
+
+function badgeClass(status) {
+  return { Draft: 'badge-draft', Published: 'badge-published', Failed: 'badge-failed', Publishing: 'badge-publishing' }[status] || 'badge-draft';
+}
+
+async function loadContent() {
+  const el = document.getElementById('content-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const [items, channels] = await Promise.all([
+      fetch('/api/content').then(r => r.json()),
+      getChannels()
+    ]);
+    if (!items.length) { el.innerHTML = '<div class="empty">No content yet - it\'s auto-drafted when you add a product in the bot.</div>'; return; }
+    const channelOptions = channels.map(c => `<option value="${c.id}">${escapeHtml(c.displayName)} (${escapeHtml(c.type)})</option>`).join('');
+    el.innerHTML = items.map(c => `
+      <div class="content-card">
+        <div class="content-title">${escapeHtml(c.title)} <span class="badge ${badgeClass(c.status)}">${escapeHtml(c.status)}</span></div>
+        <div class="content-body">${escapeHtml(c.body)}</div>
+        ${c.publishAttempts && c.publishAttempts.length ? `<div class="attempts">${c.publishAttempts.map(a => `${escapeHtml(a.channel ? a.channel.displayName : '?')}: ${escapeHtml(a.status)}`).join(' · ')}</div>` : ''}
+        ${channels.length ? `<div class="publish-row">
+          <select id="ch-${c.id}" multiple size="${Math.min(channels.length, 3)}">${channelOptions}</select>
+          <button onclick="publish('${c.id}')">Publish</button>
+        </div>` : '<div class="attempts">No channels configured - add one via POST /api/channels.</div>'}
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load content: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function publish(contentId) {
+  const select = document.getElementById(`ch-${contentId}`);
+  const channelIds = Array.from(select.selectedOptions).map(o => o.value);
+  if (!channelIds.length) { alert('Pick at least one channel first.'); return; }
+  const form = new FormData();
+  channelIds.forEach(id => form.append('ChannelIds', id));
+  const res = await fetch(`/api/content/${contentId}/publish`, { method: 'POST', body: form });
+  if (!res.ok) { alert('Publish failed: ' + await res.text()); return; }
+  await loadContent();
+}
+
+loadCatalog();
+loadOrders();
+loadContent();
+</script>
+</body>
+</html>

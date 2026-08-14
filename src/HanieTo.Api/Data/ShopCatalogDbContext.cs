@@ -12,11 +12,15 @@ public class ShopCatalogDbContext(DbContextOptions<ShopCatalogDbContext> options
     public DbSet<CatalogItem> Items => Set<CatalogItem>();
     public DbSet<CatalogCategory> Categories => Set<CatalogCategory>();
     public DbSet<CatalogSubcategory> Subcategories => Set<CatalogSubcategory>();
+    public DbSet<CatalogBuy> Buys => Set<CatalogBuy>();
+    public DbSet<CatalogUser> Users => Set<CatalogUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<CatalogItem>().ToTable("items");
         modelBuilder.Entity<CatalogCategory>().ToTable("categories");
         modelBuilder.Entity<CatalogSubcategory>().ToTable("subcategories");
+        modelBuilder.Entity<CatalogBuy>().ToTable("buys");
+        modelBuilder.Entity<CatalogUser>().ToTable("users");
     }
 }

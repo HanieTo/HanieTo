@@ -34,6 +34,18 @@ public class ContentController(AppDbContext db, ChannelPublisherResolver resolve
         return CreatedAtAction(nameof(GetById), new { id = content.Id }, content);
     }
 
+    [HttpGet]
+    public async Task<IActionResult> GetAll()
+    {
+        var content = await db.Contents
+            .Include(c => c.PublishAttempts)
+            .ThenInclude(pa => pa.Channel)
+            .OrderByDescending(c => c.CreatedAtUtc)
+            .ToListAsync();
+
+        return Ok(content);
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<IActionResult> GetById(Guid id)
     {
