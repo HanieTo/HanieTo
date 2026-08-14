@@ -17,7 +17,7 @@ TEXTS = {
         "help": (
             "ℹ️ *Help*\n\nBrowse products by category, check live stock, and place an "
             "order in a few taps. Your order is created as soon as you check out.\n\n"
-            "Use the bottom menu any time, and the ⬅️ / 🏠 buttons to move around."
+            "Send /start any time to reopen the menu, and use the ⬅️ / 🏠 buttons to move around."
         ),
         "categories": "🛍 *Categories*\n\nChoose a category:",
         "pick_product": "🗂 *{0}*\n\nChoose a product:",
@@ -44,7 +44,6 @@ TEXTS = {
         "product_gone": "This product is no longer available.",
         "back": "⬅️ Back",
         "home": "🏠 Home",
-        "use_menu": "⚠️ Please use the menu below 👇",
     },
     "ru": {
         "language_name": "🇷🇺 Русский",
@@ -58,7 +57,7 @@ TEXTS = {
         "help": (
             "ℹ️ *Помощь*\n\nПросматривайте товары по категориям, проверяйте наличие и "
             "оформляйте заказ в несколько нажатий. Заказ создаётся сразу после оформления.\n\n"
-            "Используйте нижнее меню в любой момент, а кнопки ⬅️ / 🏠 для навигации."
+            "Отправьте /start в любой момент, чтобы снова открыть меню, а кнопки ⬅️ / 🏠 — для навигации."
         ),
         "categories": "🛍 *Категории*\n\nВыберите категорию:",
         "pick_product": "🗂 *{0}*\n\nВыберите товар:",
@@ -85,7 +84,6 @@ TEXTS = {
         "product_gone": "Этот товар больше недоступен.",
         "back": "⬅️ Назад",
         "home": "🏠 Домой",
-        "use_menu": "⚠️ Пожалуйста, используйте меню ниже 👇",
     },
     "fa": {
         "language_name": "🇮🇷 فارسی",
@@ -99,7 +97,7 @@ TEXTS = {
         "help": (
             "ℹ️ *راهنما*\n\nمحصولات را بر اساس دسته‌بندی ببینید، موجودی را بررسی کنید و با "
             "چند لمس سفارش دهید. سفارش شما بلافاصله پس از تسویه ثبت می‌شود.\n\n"
-            "هر زمان از منوی پایین و دکمه‌های ⬅️ / 🏠 برای جابجایی استفاده کنید."
+            "هر زمان دستور /start را بفرستید تا منو دوباره باز شود، و از دکمه‌های ⬅️ / 🏠 برای جابجایی استفاده کنید."
         ),
         "categories": "🛍 *دسته‌بندی‌ها*\n\nیک دسته را انتخاب کنید:",
         "pick_product": "🗂 *{0}*\n\nیک محصول را انتخاب کنید:",
@@ -126,7 +124,6 @@ TEXTS = {
         "product_gone": "این محصول دیگر در دسترس نیست.",
         "back": "⬅️ بازگشت",
         "home": "🏠 خانه",
-        "use_menu": "⚠️ لطفاً از منوی زیر استفاده کنید 👇",
     },
 }
 
@@ -136,19 +133,3 @@ def t(lang: str, key: str, *args) -> str:
     table = TEXTS.get(lang, TEXTS["en"])
     text = table.get(key) or TEXTS["en"].get(key, key)
     return text.format(*args) if args else text
-
-
-def bar_label_to_lang_and_action(text: str):
-    """Reverse-map a bottom-bar button's text (any language) to (action)."""
-    mapping = {
-        "btn_products": "products",
-        "btn_cart": "cart",
-        "btn_orders": "orders",
-        "btn_help": "help",
-        "btn_language": "language",
-    }
-    for lang, table in TEXTS.items():
-        for key, action in mapping.items():
-            if table.get(key) == text:
-                return action
-    return None

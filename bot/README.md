@@ -7,7 +7,10 @@ light (SQLite, no external services) so it runs with just a bot token.
 
 ## Features
 
-- Persistent bottom-bar menu + inline drill-down (edited in place, never stacks)
+- Everything is an inline keyboard attached to the message itself, edited in
+  place (never stacks). No reply-keyboard bottom bar — some Telegram clients
+  (Desktop/Web) hide those behind an icon instead of docking them
+  automatically, which made the menu invisible for some users.
 - Categories → products (live stock) → quantity → cart → checkout
 - Cart with multiple items; orders with history
 - Three languages: English / Russian / Persian (per-chat, persisted)
