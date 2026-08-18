@@ -41,7 +41,7 @@ curl http://localhost:5299/weatherforecast
 
 The repo includes a `.devcontainer/` config, so you can work on this project from a browser tab (or any machine) without installing anything locally:
 
-1. On GitHub, open this repo → **Code** → **Codespaces** → **Create codespace on main**.
+1. On GitHub, open this repo → switch the branch dropdown to **`scaffold-webapi`** (this work hasn't been merged to `main` yet) → **Code** → **Codespaces** → **Create codespace on scaffold-webapi**.
 2. Wait for `postCreateCommand` to finish (.NET restore + Python deps + a `shopbot/.env` stub).
 3. Fill in two secrets **inside the Codespace terminal/editor** - never in chat, same rule as local dev:
    - `shopbot/.env` — bot token, Postgres/Redis passwords, etc. (copied from `.env.template`)
