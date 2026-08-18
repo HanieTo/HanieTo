@@ -19,8 +19,12 @@ Core pillars, in the order the product vision prioritizes them:
 
 ## Branch note
 
-`main` is still the empty `dotnet new webapi` scaffold. All real work lives on
-**`scaffold-webapi`** - check it out before doing anything.
+Two branches both carry real work now: **`scaffold-webapi`** is where local/CLI
+sessions commit directly; `main` gets updated via PRs merged in from cloud
+Claude Code sessions (`claude.ai/code`) or other feature branches. They're
+usually a commit or two apart, not identical - check `git log --oneline
+scaffold-webapi..origin/main` (and the reverse) if it matters which one you're
+on. Codespaces and local work should still target `scaffold-webapi`.
 
 ## Repo structure
 
