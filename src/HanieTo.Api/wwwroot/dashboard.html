@@ -1,0 +1,472 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OmniCommerce Dashboard</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 0 0 3rem; background: #f6f7f9; color: #1a1a1a; }
+  header { background: #16181d; color: #fff; padding: 1rem 1.5rem; }
+  header h1 { margin: 0; font-size: 1.25rem; }
+  nav { display: flex; gap: 0.5rem; padding: 0.75rem 1.5rem; background: #fff; border-bottom: 1px solid #e2e2e2; position: sticky; top: 0; }
+  nav button { border: none; background: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; font-size: 0.95rem; color: #444; }
+  nav button.active { background: #16181d; color: #fff; }
+  main { max-width: 1000px; margin: 1.5rem auto; padding: 0 1.5rem; }
+  section { display: none; }
+  section.active { display: block; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  th, td { text-align: left; padding: 0.6rem 0.9rem; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+  th { background: #fafafa; font-weight: 600; color: #555; }
+  tr:last-child td { border-bottom: none; }
+  .empty { padding: 2rem; text-align: center; color: #888; background: #fff; border-radius: 8px; }
+  .badge { display: inline-block; padding: 0.15rem 0.55rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+  .badge-draft { background: #fff3cd; color: #856404; }
+  .badge-published { background: #d4edda; color: #155724; }
+  .badge-failed { background: #f8d7da; color: #721c24; }
+  .badge-publishing { background: #d1ecf1; color: #0c5460; }
+  .stock-out { color: #b00020; font-weight: 600; }
+  .publish-row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.4rem; }
+  .publish-row select { min-width: 160px; padding: 0.3rem; }
+  .publish-row button { padding: 0.3rem 0.8rem; border-radius: 5px; border: 1px solid #16181d; background: #16181d; color: #fff; cursor: pointer; }
+  .content-body { color: #555; white-space: pre-wrap; margin: 0.3rem 0; }
+  .content-card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 1rem; margin-bottom: 0.75rem; }
+  .content-title { font-weight: 600; margin-bottom: 0.2rem; }
+  .attempts { font-size: 0.8rem; color: #777; margin-top: 0.4rem; }
+  .refresh { float: right; font-size: 0.85rem; color: #888; cursor: pointer; }
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 1rem; margin-bottom: 0.75rem; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; margin-top: 0.6rem; }
+  .form-grid label { font-size: 0.8rem; color: #555; display: block; margin-bottom: 0.15rem; }
+  .form-grid input, .form-grid select { width: 100%; padding: 0.4rem; box-sizing: border-box; border: 1px solid #ccc; border-radius: 5px; }
+  .form-hint { font-size: 0.8rem; color: #888; margin-top: 0.5rem; grid-column: 1 / -1; }
+  .form-actions { grid-column: 1 / -1; margin-top: 0.3rem; }
+  .form-actions button { padding: 0.45rem 1.1rem; border-radius: 5px; border: 1px solid #16181d; background: #16181d; color: #fff; cursor: pointer; }
+  .stat-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .stat-tile { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 1rem 1.25rem; min-width: 140px; flex: 1; }
+  .stat-tile .stat-value { font-size: 1.6rem; font-weight: 700; }
+  .stat-tile .stat-label { font-size: 0.8rem; color: #777; margin-top: 0.15rem; }
+  .section-heading { font-size: 0.95rem; font-weight: 600; margin: 1.1rem 0 0.4rem; color: #333; }
+  .action-row { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
+  .action-row button { padding: 0.25rem 0.6rem; font-size: 0.8rem; border-radius: 5px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  .action-row button.danger { border-color: #b00020; color: #b00020; }
+  .badge-ok { background: #d4edda; color: #155724; }
+  .badge-warn { background: #fff3cd; color: #856404; }
+  .badge-err { background: #f8d7da; color: #721c24; }
+  .health-dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; margin-right: 0.35rem; }
+  .health-ok { background: #2e8b46; }
+  .health-warn { background: #d4a017; }
+  .health-err { background: #b00020; }
+</style>
+</head>
+<body>
+<header><h1>OmniCommerce Dashboard</h1></header>
+<nav>
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="catalog">Catalog</button>
+  <button data-tab="orders">Orders</button>
+  <button data-tab="content">Content &amp; Publishing</button>
+  <button data-tab="channels">Channels</button>
+</nav>
+<main>
+  <section id="overview" class="active">
+    <span class="refresh" onclick="loadOverview()">↻ refresh</span>
+    <div id="overview-body"></div>
+  </section>
+  <section id="catalog">
+    <span class="refresh" onclick="loadCatalog()">↻ refresh</span>
+    <div class="card">
+      <strong>Add a product</strong>
+      <div class="form-grid">
+        <div>
+          <label>Type</label>
+          <select id="new-p-type" onchange="updateProductTypeHint()">
+            <option value="PHYSICAL">Physical</option>
+            <option value="DIGITAL">Digital</option>
+          </select>
+        </div>
+        <div>
+          <label>Quantity</label>
+          <input id="new-p-qty" type="number" min="1" value="1">
+        </div>
+        <div>
+          <label>Category</label>
+          <input id="new-p-category" placeholder="e.g. Shoes">
+        </div>
+        <div>
+          <label>Subcategory</label>
+          <input id="new-p-subcategory" placeholder="e.g. Sneakers">
+        </div>
+        <div>
+          <label>Description</label>
+          <input id="new-p-description" placeholder="e.g. Cool sneakers, size 42">
+        </div>
+        <div>
+          <label>Price</label>
+          <input id="new-p-price" type="number" min="0" step="0.01">
+        </div>
+        <div id="new-p-digital-wrap" style="display:none; grid-column: 1 / -1;">
+          <label>Digital codes (one per line, one per unit of quantity)</label>
+          <textarea id="new-p-digital-codes" rows="3" style="width:100%; box-sizing:border-box; padding:0.4rem; border:1px solid #ccc; border-radius:5px;"></textarea>
+        </div>
+        <div class="form-actions"><button onclick="addProduct()">Add product</button></div>
+      </div>
+    </div>
+    <div id="catalog-body"></div>
+  </section>
+  <section id="orders">
+    <span class="refresh" onclick="loadOrders()">↻ refresh</span>
+    <div id="orders-body"></div>
+  </section>
+  <section id="content">
+    <span class="refresh" onclick="loadContent()">↻ refresh</span>
+    <div id="content-body"></div>
+  </section>
+  <section id="channels">
+    <span class="refresh" onclick="loadChannelsTab()">↻ refresh</span>
+    <div id="channels-list"></div>
+    <div class="card">
+      <strong>Add a channel</strong>
+      <div class="form-grid">
+        <div>
+          <label>Type</label>
+          <select id="new-ch-type" onchange="updateChannelHint()">
+            <option>Telegram</option><option>Discord</option><option>Slack</option>
+            <option>Instagram</option><option>Twitter</option><option>Bale</option>
+            <option>Eitaa</option><option>Rubika</option><option>WhatsApp</option>
+            <option>Divar</option><option>LinkedIn</option><option>Pinterest</option><option>TikTok</option>
+          </select>
+        </div>
+        <div>
+          <label>Display name</label>
+          <input id="new-ch-name" placeholder="e.g. My Shop Channel">
+        </div>
+        <div>
+          <label id="label-apikey">API key / token / webhook URL</label>
+          <input id="new-ch-apikey" type="password">
+        </div>
+        <div>
+          <label id="label-external">External ID / chat ID</label>
+          <input id="new-ch-external" placeholder="e.g. @mychannel">
+        </div>
+        <div>
+          <label>API secret (if needed)</label>
+          <input id="new-ch-apisecret" type="password">
+        </div>
+        <div>
+          <label>Access token secret (if needed)</label>
+          <input id="new-ch-tokensecret" type="password">
+        </div>
+        <div id="channel-hint" class="form-hint"></div>
+        <div class="form-actions"><button onclick="addChannel()">Add channel</button></div>
+      </div>
+    </div>
+  </section>
+</main>
+<script>
+const tabs = document.querySelectorAll('nav button');
+const sections = document.querySelectorAll('main section');
+tabs.forEach(btn => btn.addEventListener('click', () => {
+  tabs.forEach(b => b.classList.remove('active'));
+  sections.forEach(s => s.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById(btn.dataset.tab).classList.add('active');
+}));
+
+function escapeHtml(s) {
+  return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function updateProductTypeHint() {
+  const isDigital = document.getElementById('new-p-type').value === 'DIGITAL';
+  document.getElementById('new-p-digital-wrap').style.display = isDigital ? 'block' : 'none';
+}
+
+async function addProduct() {
+  const type = document.getElementById('new-p-type').value;
+  const quantity = parseInt(document.getElementById('new-p-qty').value, 10) || 0;
+  const category = document.getElementById('new-p-category').value.trim();
+  const subcategory = document.getElementById('new-p-subcategory').value.trim();
+  const description = document.getElementById('new-p-description').value.trim();
+  const price = parseFloat(document.getElementById('new-p-price').value);
+  if (!category || !subcategory || !description || !(price > 0) || quantity < 1) {
+    alert('Category, subcategory, description, a positive price, and a quantity of at least 1 are all required.');
+    return;
+  }
+  let digitalCodes = null;
+  if (type === 'DIGITAL') {
+    digitalCodes = document.getElementById('new-p-digital-codes').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (digitalCodes.length !== quantity) {
+      alert(`Digital products need exactly one code per line - ${quantity} expected, got ${digitalCodes.length}.`);
+      return;
+    }
+  }
+  const res = await fetch('/api/products', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemType: type, category, subcategory, description, price, quantity, digitalCodes }),
+  });
+  if (!res.ok) { alert('Could not add product: ' + await res.text()); return; }
+  document.getElementById('new-p-category').value = '';
+  document.getElementById('new-p-subcategory').value = '';
+  document.getElementById('new-p-description').value = '';
+  document.getElementById('new-p-price').value = '';
+  document.getElementById('new-p-qty').value = '1';
+  document.getElementById('new-p-digital-codes').value = '';
+  await loadCatalog();
+}
+
+async function editProductPrice(category, subcategory, description, currentPrice) {
+  const input = prompt(`New price for "${description}" (currently ${currentPrice.toFixed(2)}):`, currentPrice.toFixed(2));
+  if (input === null) return;
+  const newPrice = parseFloat(input);
+  if (!(newPrice > 0)) { alert('Price must be a positive number.'); return; }
+  const res = await fetch('/api/products/price', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category, subcategory, description, newPrice }),
+  });
+  if (!res.ok) { alert('Could not update price: ' + await res.text()); return; }
+  await loadCatalog();
+}
+
+async function loadCatalog() {
+  const el = document.getElementById('catalog-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const products = await (await fetch('/api/products')).json();
+    if (!products.length) { el.innerHTML = '<div class="empty">No products yet.</div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>Name</th><th>Category</th><th>Subcategory</th><th>Price</th><th>Stock</th><th></th></tr></thead><tbody>
+      ${products.map(p => `<tr>
+        <td>${escapeHtml(p.name)}</td>
+        <td>${escapeHtml(p.category)}</td>
+        <td>${escapeHtml(p.subcategory)}</td>
+        <td>${p.price.toFixed(2)}</td>
+        <td class="${p.stock === 0 ? 'stock-out' : ''}">${p.stock}</td>
+        <td><span class="refresh" onclick="editProductPrice('${escapeHtml(p.category).replace(/'/g, "\\'")}', '${escapeHtml(p.subcategory).replace(/'/g, "\\'")}', '${escapeHtml(p.name).replace(/'/g, "\\'")}', ${p.price})">edit price</span></td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load catalog: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function updateOrderStatus(id, status, trackNumber) {
+  const res = await fetch(`/api/orders/${id}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, trackNumber: trackNumber || null }),
+  });
+  if (!res.ok) { alert('Could not update order: ' + await res.text()); return; }
+  await loadOrders();
+}
+
+async function shipOrder(id) {
+  const trackNumber = prompt('Tracking number (optional):', '');
+  if (trackNumber === null) return;
+  await updateOrderStatus(id, 'SHIPPED', trackNumber);
+}
+
+async function markDelivered(id) { await updateOrderStatus(id, 'DELIVERED'); }
+async function markCompleted(id) { await updateOrderStatus(id, 'COMPLETED'); }
+
+async function refundOrder(id) {
+  if (!confirm(`Refund order #${id}? This gives the stock back and cannot be undone.`)) return;
+  const res = await fetch(`/api/orders/${id}/refund`, { method: 'POST' });
+  if (!res.ok) { alert('Could not refund order: ' + await res.text()); return; }
+  await loadOrders();
+}
+
+function renderOrderActions(order) {
+  const buttons = [];
+  if (order.status === 'PAID') buttons.push(`<button onclick="shipOrder(${order.id})">Ship</button>`);
+  if (order.status === 'SHIPPED') buttons.push(`<button onclick="markDelivered(${order.id})">Mark delivered</button>`);
+  if (order.status === 'DELIVERED') buttons.push(`<button onclick="markCompleted(${order.id})">Mark completed</button>`);
+  if (order.status !== 'REFUNDED') buttons.push(`<button class="danger" onclick="refundOrder(${order.id})">Refund</button>`);
+  return buttons.length ? `<div class="action-row">${buttons.join('')}</div>` : '';
+}
+
+async function loadOrders() {
+  const el = document.getElementById('orders-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const orders = await (await fetch('/api/orders')).json();
+    if (!orders.length) { el.innerHTML = '<div class="empty">No orders yet.</div>'; return; }
+    el.innerHTML = `<table><thead><tr><th>#</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead><tbody>
+      ${orders.map(o => `<tr>
+        <td>${o.id}</td>
+        <td>${escapeHtml(o.buyer)}</td>
+        <td>${o.totalPrice.toFixed(2)}</td>
+        <td>${escapeHtml(o.status)}</td>
+        <td>${o.buyDatetime ? new Date(o.buyDatetime).toLocaleString() : '-'}</td>
+        <td>${renderOrderActions(o)}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load orders: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadOverview() {
+  const el = document.getElementById('overview-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const overview = await (await fetch('/api/overview')).json();
+    const stats = `<div class="stat-row">
+      <div class="stat-tile"><div class="stat-value">${overview.todayOrderCount}</div><div class="stat-label">Orders today</div></div>
+      <div class="stat-tile"><div class="stat-value">${overview.todayRevenue.toFixed(2)}</div><div class="stat-label">Revenue today</div></div>
+      <div class="stat-tile"><div class="stat-value">${overview.lowStockProducts.length}</div><div class="stat-label">Low / out of stock</div></div>
+      <div class="stat-tile"><div class="stat-value">${overview.recentFailedPublishes.length}</div><div class="stat-label">Recent failed publishes</div></div>
+    </div>`;
+
+    const lowStock = overview.lowStockProducts.length
+      ? `<table><thead><tr><th>Name</th><th>Category</th><th>Subcategory</th><th>Stock</th></tr></thead><tbody>
+          ${overview.lowStockProducts.map(p => `<tr>
+            <td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.category)}</td><td>${escapeHtml(p.subcategory)}</td>
+            <td class="${p.stock === 0 ? 'stock-out' : ''}">${p.stock}</td>
+          </tr>`).join('')}
+        </tbody></table>`
+      : '<div class="empty">Nothing running low.</div>';
+
+    const failedPublishes = overview.recentFailedPublishes.length
+      ? overview.recentFailedPublishes.map(f => `
+          <div class="content-card">
+            <div class="content-title">${escapeHtml(f.contentTitle)} <span class="badge badge-failed">${escapeHtml(f.channelName)}</span></div>
+            ${f.errorMessage ? `<div class="content-body">${escapeHtml(f.errorMessage)}</div>` : ''}
+            <div class="attempts">${new Date(f.attemptedAtUtc).toLocaleString()}</div>
+          </div>`).join('')
+      : '<div class="empty">No recent publish failures.</div>';
+
+    el.innerHTML = `${stats}
+      <div class="section-heading">Low / out of stock</div>${lowStock}
+      <div class="section-heading">Recent failed publishes</div>${failedPublishes}`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load overview: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+let channelsCache = null;
+async function getChannels() {
+  if (!channelsCache) channelsCache = await (await fetch('/api/channels')).json();
+  return channelsCache;
+}
+
+function badgeClass(status) {
+  return { Draft: 'badge-draft', Published: 'badge-published', Failed: 'badge-failed', Publishing: 'badge-publishing' }[status] || 'badge-draft';
+}
+
+async function loadContent() {
+  const el = document.getElementById('content-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const [items, channels] = await Promise.all([
+      fetch('/api/content').then(r => r.json()),
+      getChannels()
+    ]);
+    if (!items.length) { el.innerHTML = '<div class="empty">No content yet - it\'s auto-drafted when you add a product in the bot.</div>'; return; }
+    const channelOptions = channels.map(c => `<option value="${c.id}">${escapeHtml(c.displayName)} (${escapeHtml(c.type)})</option>`).join('');
+    el.innerHTML = items.map(c => `
+      <div class="content-card">
+        <div class="content-title">${escapeHtml(c.title)} <span class="badge ${badgeClass(c.status)}">${escapeHtml(c.status)}</span></div>
+        <div class="content-body">${escapeHtml(c.body)}</div>
+        ${c.publishAttempts && c.publishAttempts.length ? `<div class="attempts">${c.publishAttempts.map(a => `${escapeHtml(a.channel ? a.channel.displayName : '?')}: ${escapeHtml(a.status)}`).join(' · ')}</div>` : ''}
+        ${channels.length ? `<div class="publish-row">
+          <select id="ch-${c.id}" multiple size="${Math.min(channels.length, 3)}">${channelOptions}</select>
+          <button onclick="publish('${c.id}')">Publish</button>
+        </div>` : '<div class="attempts">No channels configured - add one via POST /api/channels.</div>'}
+      </div>
+    `).join('');
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load content: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+const CHANNEL_HINTS = {
+  Telegram: 'API key = bot token from @BotFather. External ID = the channel handle (e.g. @mychannel) or numeric chat id.',
+  Discord: 'API key = the webhook URL (Server Settings → Integrations → Webhooks). External ID not needed.',
+  Slack: 'API key = the Incoming Webhook URL. External ID not needed.',
+};
+
+function updateChannelHint() {
+  const type = document.getElementById('new-ch-type').value;
+  document.getElementById('channel-hint').textContent =
+    CHANNEL_HINTS[type] || 'Check the channel’s publisher implementation for which fields it reads (ApiKey / ApiSecret / AccessToken / AccessTokenSecret / ExternalId).';
+}
+
+function channelHealth(c) {
+  if (!c.hasCredentials) return { dot: 'health-err', label: 'No credentials set' };
+  if (!c.lastPublishAtUtc) return { dot: 'health-warn', label: 'Not published to yet' };
+  if (c.lastPublishStatus === 'Succeeded') return { dot: 'health-ok', label: `Last publish OK · ${new Date(c.lastPublishAtUtc).toLocaleString()}` };
+  return { dot: 'health-err', label: `Last publish failed · ${new Date(c.lastPublishAtUtc).toLocaleString()}` };
+}
+
+async function loadChannelsTab() {
+  const el = document.getElementById('channels-list');
+  el.innerHTML = 'Loading…';
+  try {
+    channelsCache = null;
+    const channels = await getChannels();
+    el.innerHTML = channels.length
+      ? `<table><thead><tr><th>Name</th><th>Type</th><th>Enabled</th><th>Health</th><th></th></tr></thead><tbody>
+          ${channels.map(c => { const h = channelHealth(c); return `<tr><td>${escapeHtml(c.displayName)}</td><td>${escapeHtml(c.type)}</td><td>${c.isEnabled ? 'yes' : 'no'}</td>
+            <td><span class="health-dot ${h.dot}"></span>${escapeHtml(h.label)}</td>
+            <td><span class="refresh" onclick="removeChannel('${c.id}')">remove</span></td></tr>`; }).join('')}
+        </tbody></table>`
+      : '<div class="empty">No channels configured yet - add one below.</div>';
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load channels: ${escapeHtml(e.message)}</div>`;
+  }
+  updateChannelHint();
+}
+
+async function addChannel() {
+  const body = {
+    type: document.getElementById('new-ch-type').value,
+    displayName: document.getElementById('new-ch-name').value,
+    apiKey: document.getElementById('new-ch-apikey').value || null,
+    apiSecret: document.getElementById('new-ch-apisecret').value || null,
+    accessToken: null,
+    accessTokenSecret: document.getElementById('new-ch-tokensecret').value || null,
+    externalId: document.getElementById('new-ch-external').value || null,
+  };
+  if (!body.displayName) { alert('Give it a display name first.'); return; }
+  const res = await fetch('/api/channels', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) { alert('Could not add channel: ' + await res.text()); return; }
+  document.getElementById('new-ch-name').value = '';
+  document.getElementById('new-ch-apikey').value = '';
+  document.getElementById('new-ch-apisecret').value = '';
+  document.getElementById('new-ch-tokensecret').value = '';
+  document.getElementById('new-ch-external').value = '';
+  channelsCache = null;
+  await loadChannelsTab();
+}
+
+async function removeChannel(id) {
+  if (!confirm('Remove this channel?')) return;
+  const res = await fetch(`/api/channels/${id}`, { method: 'DELETE' });
+  if (!res.ok && res.status !== 404) { alert('Could not remove channel: ' + await res.text()); return; }
+  channelsCache = null;
+  await loadChannelsTab();
+}
+
+async function publish(contentId) {
+  const select = document.getElementById(`ch-${contentId}`);
+  const channelIds = Array.from(select.selectedOptions).map(o => o.value);
+  if (!channelIds.length) { alert('Pick at least one channel first.'); return; }
+  const form = new FormData();
+  channelIds.forEach(id => form.append('ChannelIds', id));
+  const res = await fetch(`/api/content/${contentId}/publish`, { method: 'POST', body: form });
+  if (!res.ok) { alert('Publish failed: ' + await res.text()); return; }
+  await loadContent();
+}
+
+loadOverview();
+loadCatalog();
+loadOrders();
+loadContent();
+loadChannelsTab();
+</script>
+</body>
+</html>

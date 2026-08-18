@@ -23,6 +23,12 @@ namespace HanieTo.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AccessToken")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccessTokenSecret")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ApiKey")
                         .HasColumnType("TEXT");
 

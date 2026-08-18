@@ -11,7 +11,7 @@ public class TelegramPublisher(IHttpClientFactory httpClientFactory) : IChannelP
 {
     public ChannelType SupportedType => ChannelType.Telegram;
 
-    public async Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, CancellationToken cancellationToken)
+    public async Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, ListingDetails? listing, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(channel.ApiKey) || string.IsNullOrWhiteSpace(channel.ExternalId))
         {

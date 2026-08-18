@@ -11,7 +11,7 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace HanieTo.Api.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260723210209_InitialCreate")]
+    [Migration("20260814195922_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -26,6 +26,12 @@ namespace HanieTo.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AccessToken")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("AccessTokenSecret")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ApiKey")
                         .HasColumnType("TEXT");
 
@@ -34,6 +40,9 @@ namespace HanieTo.Api.Migrations
 
                     b.Property<string>("DisplayName")
                         .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalId")
                         .HasColumnType("TEXT");
 
                     b.Property<bool>("IsEnabled")

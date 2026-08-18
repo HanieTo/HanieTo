@@ -436,3 +436,8 @@ FodyWeavers.xsd
 # Uploaded media (local dev hosting for publish testing)
 src/HanieTo.Api/wwwroot/uploads/*
 !src/HanieTo.Api/wwwroot/uploads/.gitkeep
+
+# Python shop bot (bot/)
+bot/.venv/
+__pycache__/
+*.pyc

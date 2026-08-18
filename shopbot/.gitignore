@@ -1,0 +1,7 @@
+/data/
+.env
+.env.bot.dev
+postgres_data/
+redis_data/
+caddy_data/
+caddy_config/

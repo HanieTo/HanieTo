@@ -4,5 +4,15 @@ public enum ChannelType
 {
     Instagram,
     Twitter,
-    Telegram
+    Telegram,
+    Bale,
+    Eitaa,
+    Rubika,
+    WhatsApp,
+    Divar,
+    Discord,
+    Slack,
+    LinkedIn,
+    Pinterest,
+    TikTok
 }

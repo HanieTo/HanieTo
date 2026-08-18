@@ -20,7 +20,10 @@ namespace HanieTo.Api.Migrations
                     DisplayName = table.Column<string>(type: "TEXT", nullable: false),
                     IsEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
                     ApiKey = table.Column<string>(type: "TEXT", nullable: true),
-                    ApiSecret = table.Column<string>(type: "TEXT", nullable: true)
+                    ApiSecret = table.Column<string>(type: "TEXT", nullable: true),
+                    AccessToken = table.Column<string>(type: "TEXT", nullable: true),
+                    AccessTokenSecret = table.Column<string>(type: "TEXT", nullable: true),
+                    ExternalId = table.Column<string>(type: "TEXT", nullable: true)
                 },
                 constraints: table =>
                 {

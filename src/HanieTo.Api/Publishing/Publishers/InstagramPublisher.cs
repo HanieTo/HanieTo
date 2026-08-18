@@ -16,7 +16,7 @@ public class InstagramPublisher(IHttpClientFactory httpClientFactory) : IChannel
 
     public ChannelType SupportedType => ChannelType.Instagram;
 
-    public async Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, CancellationToken cancellationToken)
+    public async Task<PublishOutcome> PublishAsync(Content content, Channel channel, PublishMedia? media, ListingDetails? listing, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(channel.ApiKey) || string.IsNullOrWhiteSpace(channel.ExternalId) || media is null)
         {
