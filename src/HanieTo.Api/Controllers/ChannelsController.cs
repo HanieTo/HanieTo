@@ -12,6 +12,12 @@ public record CreateChannelRequest(
 
 public record DiscoveredChatId(string ChatId, string? ChatTitle);
 
+// "Health" here just means: does it have credentials set, and how did its
+// last publish attempt go - not a live check against the platform's API.
+public record ChannelHealthDto(
+    Guid Id, ChannelType Type, string DisplayName, bool IsEnabled, string? ExternalId,
+    bool HasCredentials, PublishAttemptStatus? LastPublishStatus, DateTime? LastPublishAtUtc);
+
 [ApiController]
 [Route("api/[controller]")]
 public class ChannelsController(AppDbContext db, IHttpClientFactory httpClientFactory) : ControllerBase
@@ -39,7 +45,23 @@ public class ChannelsController(AppDbContext db, IHttpClientFactory httpClientFa
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
-        var channels = await db.Channels.ToListAsync();
+        var channels = await (
+            from channel in db.Channels
+            select new ChannelHealthDto(
+                channel.Id, channel.Type, channel.DisplayName, channel.IsEnabled, channel.ExternalId,
+                channel.ApiKey != null || channel.AccessToken != null,
+                db.PublishAttempts
+                    .Where(a => a.ChannelId == channel.Id)
+                    .OrderByDescending(a => a.AttemptedAtUtc)
+                    .Select(a => (PublishAttemptStatus?)a.Status)
+                    .FirstOrDefault(),
+                db.PublishAttempts
+                    .Where(a => a.ChannelId == channel.Id)
+                    .OrderByDescending(a => a.AttemptedAtUtc)
+                    .Select(a => (DateTime?)a.AttemptedAtUtc)
+                    .FirstOrDefault())
+        ).ToListAsync();
+
         return Ok(channels);
     }
 

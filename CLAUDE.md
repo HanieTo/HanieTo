@@ -28,13 +28,24 @@ Core pillars, in the order the product vision prioritizes them:
   (`Content`, `Channel`, `PublishAttempt`) for the publishing module, and has a
   **read-only** EF Core context (`ShopCatalogDbContext`) into the bot's Postgres
   for catalog/orders - never migrates or writes to that database, only queries.
+  Writes (add/edit product, ship/refund order) go through `Catalog/ShopBotAdminClient.cs`,
+  which calls the bot's own internal API instead - see below.
   - `wwwroot/dashboard.html` - the owner-facing dashboard (vanilla JS, no build
-    step): Catalog / Orders / Content & Publishing / Channels tabs.
+    step): Overview / Catalog / Orders / Content & Publishing / Channels tabs.
+    Overview surfaces today's orders/revenue, low/out-of-stock products, and
+    recent failed publishes - the "what needs my attention" home tab.
   - `Publishing/Publishers/` - one `IChannelPublisher` per platform (Telegram,
     Discord, Slack, Instagram, Twitter, etc.) resolved via `ChannelPublisherResolver`.
 - `shopbot/` - the Telegram shop bot, built on **AiogramShopBot** (Python/Aiogram 3,
   FastAPI, SQLAlchemy async, Postgres, Redis, Docker Compose). This is the source
   of truth for the product catalog and orders.
+  - `internal_api/catalog_admin.py` - the *only* way anything outside the bot
+    (i.e. the dashboard) is allowed to write products/orders. Reuses the bot's
+    own repositories/services (`ItemRepository`, `BuyService.refund`, etc.) so
+    persistence rules (item-type validation, refund bookkeeping - giving stock
+    back, adjusting spend totals, admin notifications) live in one place, not
+    duplicated in C#. Auth is a shared secret: `INTERNAL_API_KEY` (bot env) must
+    match `ShopBotInternalApi:ApiKey` (dashboard, via `dotnet user-secrets`).
 - `tests/HanieTo.Api.Tests/` - xUnit tests for the API.
 - `shopbot/tests/` - pytest tests for the bot.
 - `.devcontainer/` - GitHub Codespaces config (`.NET` + Python + Docker-in-Docker),

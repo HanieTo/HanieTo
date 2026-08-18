@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using EFCore.NamingConventions;
+using HanieTo.Api.Catalog;
 using HanieTo.Api.Data;
 using HanieTo.Api.Publishing;
 using HanieTo.Api.Publishing.Publishers;
@@ -28,6 +29,15 @@ builder.Services.AddDbContext<ShopCatalogDbContext>(options =>
     .UseSnakeCaseNamingConvention());
 
 builder.Services.AddHttpClient();
+
+// The bot's internal write API for products/orders (shopbot/internal_api/catalog_admin.py)
+// - see ShopBotAdminClient for why writes go through this instead of straight to Postgres.
+builder.Services.AddHttpClient<ShopBotAdminClient>(client =>
+{
+    var baseUrl = builder.Configuration["ShopBotInternalApi:BaseUrl"] ?? "http://host.docker.internal:5000";
+    client.BaseAddress = new Uri(baseUrl);
+});
+
 builder.Services.AddScoped<IChannelPublisher, InstagramPublisher>();
 builder.Services.AddScoped<IChannelPublisher, TwitterPublisher>();
 builder.Services.AddScoped<IChannelPublisher, TelegramPublisher>();

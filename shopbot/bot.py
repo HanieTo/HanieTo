@@ -15,6 +15,7 @@ from fastapi import FastAPI, Request, status, HTTPException
 from admin import authentication_backend
 from db import create_db_and_tables, engine
 import uvicorn
+from internal_api.catalog_admin import internal_api_router
 from fastapi.responses import JSONResponse
 from enums.cryptocurrency import Cryptocurrency
 from models.buy import BuyAdmin
@@ -128,6 +129,7 @@ admin.add_model_view(ReferralBonusAdmin)
 admin.add_model_view(ReviewAdmin)
 
 app.include_router(processing_router)
+app.include_router(internal_api_router)
 
 
 @app.post(config.WEBHOOK_PATH)

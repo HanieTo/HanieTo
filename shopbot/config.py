@@ -20,6 +20,11 @@ TOKEN = os.environ.get("TOKEN")
 # OmniCommerce publishing module (the C# API) - see services/publishing_hook.py.
 # host.docker.internal reaches the host machine's ports from inside a container.
 PUBLISHING_API_URL = os.environ.get("PUBLISHING_API_URL", "http://host.docker.internal:5169")
+# Shared secret the OmniCommerce dashboard (the C# API) must send as the
+# X-Internal-Api-Key header to use internal_api/catalog_admin.py - the only
+# way anything outside the bot is allowed to write to the catalog/orders. See
+# that module for why writes don't just go straight to Postgres from the API.
+INTERNAL_API_KEY = os.environ.get("INTERNAL_API_KEY")
 ADMIN_ID_LIST = os.environ.get("ADMIN_ID_LIST").split(',')
 ADMIN_ID_LIST = [int(admin_id) for admin_id in ADMIN_ID_LIST]
 SUPPORT_LINK = os.environ.get("SUPPORT_LINK")

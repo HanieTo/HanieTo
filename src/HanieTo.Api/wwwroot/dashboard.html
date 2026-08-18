@@ -40,19 +40,76 @@
   .form-hint { font-size: 0.8rem; color: #888; margin-top: 0.5rem; grid-column: 1 / -1; }
   .form-actions { grid-column: 1 / -1; margin-top: 0.3rem; }
   .form-actions button { padding: 0.45rem 1.1rem; border-radius: 5px; border: 1px solid #16181d; background: #16181d; color: #fff; cursor: pointer; }
+  .stat-row { display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem; }
+  .stat-tile { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 1rem 1.25rem; min-width: 140px; flex: 1; }
+  .stat-tile .stat-value { font-size: 1.6rem; font-weight: 700; }
+  .stat-tile .stat-label { font-size: 0.8rem; color: #777; margin-top: 0.15rem; }
+  .section-heading { font-size: 0.95rem; font-weight: 600; margin: 1.1rem 0 0.4rem; color: #333; }
+  .action-row { display: flex; gap: 0.4rem; margin-top: 0.4rem; flex-wrap: wrap; }
+  .action-row button { padding: 0.25rem 0.6rem; font-size: 0.8rem; border-radius: 5px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+  .action-row button.danger { border-color: #b00020; color: #b00020; }
+  .badge-ok { background: #d4edda; color: #155724; }
+  .badge-warn { background: #fff3cd; color: #856404; }
+  .badge-err { background: #f8d7da; color: #721c24; }
+  .health-dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%; margin-right: 0.35rem; }
+  .health-ok { background: #2e8b46; }
+  .health-warn { background: #d4a017; }
+  .health-err { background: #b00020; }
 </style>
 </head>
 <body>
 <header><h1>OmniCommerce Dashboard</h1></header>
 <nav>
-  <button data-tab="catalog" class="active">Catalog</button>
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="catalog">Catalog</button>
   <button data-tab="orders">Orders</button>
   <button data-tab="content">Content &amp; Publishing</button>
   <button data-tab="channels">Channels</button>
 </nav>
 <main>
-  <section id="catalog" class="active">
+  <section id="overview" class="active">
+    <span class="refresh" onclick="loadOverview()">↻ refresh</span>
+    <div id="overview-body"></div>
+  </section>
+  <section id="catalog">
     <span class="refresh" onclick="loadCatalog()">↻ refresh</span>
+    <div class="card">
+      <strong>Add a product</strong>
+      <div class="form-grid">
+        <div>
+          <label>Type</label>
+          <select id="new-p-type" onchange="updateProductTypeHint()">
+            <option value="PHYSICAL">Physical</option>
+            <option value="DIGITAL">Digital</option>
+          </select>
+        </div>
+        <div>
+          <label>Quantity</label>
+          <input id="new-p-qty" type="number" min="1" value="1">
+        </div>
+        <div>
+          <label>Category</label>
+          <input id="new-p-category" placeholder="e.g. Shoes">
+        </div>
+        <div>
+          <label>Subcategory</label>
+          <input id="new-p-subcategory" placeholder="e.g. Sneakers">
+        </div>
+        <div>
+          <label>Description</label>
+          <input id="new-p-description" placeholder="e.g. Cool sneakers, size 42">
+        </div>
+        <div>
+          <label>Price</label>
+          <input id="new-p-price" type="number" min="0" step="0.01">
+        </div>
+        <div id="new-p-digital-wrap" style="display:none; grid-column: 1 / -1;">
+          <label>Digital codes (one per line, one per unit of quantity)</label>
+          <textarea id="new-p-digital-codes" rows="3" style="width:100%; box-sizing:border-box; padding:0.4rem; border:1px solid #ccc; border-radius:5px;"></textarea>
+        </div>
+        <div class="form-actions"><button onclick="addProduct()">Add product</button></div>
+      </div>
+    </div>
     <div id="catalog-body"></div>
   </section>
   <section id="orders">
@@ -118,24 +175,113 @@ function escapeHtml(s) {
   return (s ?? '').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function updateProductTypeHint() {
+  const isDigital = document.getElementById('new-p-type').value === 'DIGITAL';
+  document.getElementById('new-p-digital-wrap').style.display = isDigital ? 'block' : 'none';
+}
+
+async function addProduct() {
+  const type = document.getElementById('new-p-type').value;
+  const quantity = parseInt(document.getElementById('new-p-qty').value, 10) || 0;
+  const category = document.getElementById('new-p-category').value.trim();
+  const subcategory = document.getElementById('new-p-subcategory').value.trim();
+  const description = document.getElementById('new-p-description').value.trim();
+  const price = parseFloat(document.getElementById('new-p-price').value);
+  if (!category || !subcategory || !description || !(price > 0) || quantity < 1) {
+    alert('Category, subcategory, description, a positive price, and a quantity of at least 1 are all required.');
+    return;
+  }
+  let digitalCodes = null;
+  if (type === 'DIGITAL') {
+    digitalCodes = document.getElementById('new-p-digital-codes').value.split('\n').map(s => s.trim()).filter(Boolean);
+    if (digitalCodes.length !== quantity) {
+      alert(`Digital products need exactly one code per line - ${quantity} expected, got ${digitalCodes.length}.`);
+      return;
+    }
+  }
+  const res = await fetch('/api/products', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ itemType: type, category, subcategory, description, price, quantity, digitalCodes }),
+  });
+  if (!res.ok) { alert('Could not add product: ' + await res.text()); return; }
+  document.getElementById('new-p-category').value = '';
+  document.getElementById('new-p-subcategory').value = '';
+  document.getElementById('new-p-description').value = '';
+  document.getElementById('new-p-price').value = '';
+  document.getElementById('new-p-qty').value = '1';
+  document.getElementById('new-p-digital-codes').value = '';
+  await loadCatalog();
+}
+
+async function editProductPrice(category, subcategory, description, currentPrice) {
+  const input = prompt(`New price for "${description}" (currently ${currentPrice.toFixed(2)}):`, currentPrice.toFixed(2));
+  if (input === null) return;
+  const newPrice = parseFloat(input);
+  if (!(newPrice > 0)) { alert('Price must be a positive number.'); return; }
+  const res = await fetch('/api/products/price', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category, subcategory, description, newPrice }),
+  });
+  if (!res.ok) { alert('Could not update price: ' + await res.text()); return; }
+  await loadCatalog();
+}
+
 async function loadCatalog() {
   const el = document.getElementById('catalog-body');
   el.innerHTML = 'Loading…';
   try {
     const products = await (await fetch('/api/products')).json();
     if (!products.length) { el.innerHTML = '<div class="empty">No products yet.</div>'; return; }
-    el.innerHTML = `<table><thead><tr><th>Name</th><th>Category</th><th>Subcategory</th><th>Price</th><th>Stock</th></tr></thead><tbody>
+    el.innerHTML = `<table><thead><tr><th>Name</th><th>Category</th><th>Subcategory</th><th>Price</th><th>Stock</th><th></th></tr></thead><tbody>
       ${products.map(p => `<tr>
         <td>${escapeHtml(p.name)}</td>
         <td>${escapeHtml(p.category)}</td>
         <td>${escapeHtml(p.subcategory)}</td>
         <td>${p.price.toFixed(2)}</td>
         <td class="${p.stock === 0 ? 'stock-out' : ''}">${p.stock}</td>
+        <td><span class="refresh" onclick="editProductPrice('${escapeHtml(p.category).replace(/'/g, "\\'")}', '${escapeHtml(p.subcategory).replace(/'/g, "\\'")}', '${escapeHtml(p.name).replace(/'/g, "\\'")}', ${p.price})">edit price</span></td>
       </tr>`).join('')}
     </tbody></table>`;
   } catch (e) {
     el.innerHTML = `<div class="empty">Failed to load catalog: ${escapeHtml(e.message)}</div>`;
   }
+}
+
+async function updateOrderStatus(id, status, trackNumber) {
+  const res = await fetch(`/api/orders/${id}/status`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status, trackNumber: trackNumber || null }),
+  });
+  if (!res.ok) { alert('Could not update order: ' + await res.text()); return; }
+  await loadOrders();
+}
+
+async function shipOrder(id) {
+  const trackNumber = prompt('Tracking number (optional):', '');
+  if (trackNumber === null) return;
+  await updateOrderStatus(id, 'SHIPPED', trackNumber);
+}
+
+async function markDelivered(id) { await updateOrderStatus(id, 'DELIVERED'); }
+async function markCompleted(id) { await updateOrderStatus(id, 'COMPLETED'); }
+
+async function refundOrder(id) {
+  if (!confirm(`Refund order #${id}? This gives the stock back and cannot be undone.`)) return;
+  const res = await fetch(`/api/orders/${id}/refund`, { method: 'POST' });
+  if (!res.ok) { alert('Could not refund order: ' + await res.text()); return; }
+  await loadOrders();
+}
+
+function renderOrderActions(order) {
+  const buttons = [];
+  if (order.status === 'PAID') buttons.push(`<button onclick="shipOrder(${order.id})">Ship</button>`);
+  if (order.status === 'SHIPPED') buttons.push(`<button onclick="markDelivered(${order.id})">Mark delivered</button>`);
+  if (order.status === 'DELIVERED') buttons.push(`<button onclick="markCompleted(${order.id})">Mark completed</button>`);
+  if (order.status !== 'REFUNDED') buttons.push(`<button class="danger" onclick="refundOrder(${order.id})">Refund</button>`);
+  return buttons.length ? `<div class="action-row">${buttons.join('')}</div>` : '';
 }
 
 async function loadOrders() {
@@ -144,17 +290,56 @@ async function loadOrders() {
   try {
     const orders = await (await fetch('/api/orders')).json();
     if (!orders.length) { el.innerHTML = '<div class="empty">No orders yet.</div>'; return; }
-    el.innerHTML = `<table><thead><tr><th>#</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead><tbody>
+    el.innerHTML = `<table><thead><tr><th>#</th><th>Buyer</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead><tbody>
       ${orders.map(o => `<tr>
         <td>${o.id}</td>
         <td>${escapeHtml(o.buyer)}</td>
         <td>${o.totalPrice.toFixed(2)}</td>
         <td>${escapeHtml(o.status)}</td>
         <td>${o.buyDatetime ? new Date(o.buyDatetime).toLocaleString() : '-'}</td>
+        <td>${renderOrderActions(o)}</td>
       </tr>`).join('')}
     </tbody></table>`;
   } catch (e) {
     el.innerHTML = `<div class="empty">Failed to load orders: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function loadOverview() {
+  const el = document.getElementById('overview-body');
+  el.innerHTML = 'Loading…';
+  try {
+    const overview = await (await fetch('/api/overview')).json();
+    const stats = `<div class="stat-row">
+      <div class="stat-tile"><div class="stat-value">${overview.todayOrderCount}</div><div class="stat-label">Orders today</div></div>
+      <div class="stat-tile"><div class="stat-value">${overview.todayRevenue.toFixed(2)}</div><div class="stat-label">Revenue today</div></div>
+      <div class="stat-tile"><div class="stat-value">${overview.lowStockProducts.length}</div><div class="stat-label">Low / out of stock</div></div>
+      <div class="stat-tile"><div class="stat-value">${overview.recentFailedPublishes.length}</div><div class="stat-label">Recent failed publishes</div></div>
+    </div>`;
+
+    const lowStock = overview.lowStockProducts.length
+      ? `<table><thead><tr><th>Name</th><th>Category</th><th>Subcategory</th><th>Stock</th></tr></thead><tbody>
+          ${overview.lowStockProducts.map(p => `<tr>
+            <td>${escapeHtml(p.name)}</td><td>${escapeHtml(p.category)}</td><td>${escapeHtml(p.subcategory)}</td>
+            <td class="${p.stock === 0 ? 'stock-out' : ''}">${p.stock}</td>
+          </tr>`).join('')}
+        </tbody></table>`
+      : '<div class="empty">Nothing running low.</div>';
+
+    const failedPublishes = overview.recentFailedPublishes.length
+      ? overview.recentFailedPublishes.map(f => `
+          <div class="content-card">
+            <div class="content-title">${escapeHtml(f.contentTitle)} <span class="badge badge-failed">${escapeHtml(f.channelName)}</span></div>
+            ${f.errorMessage ? `<div class="content-body">${escapeHtml(f.errorMessage)}</div>` : ''}
+            <div class="attempts">${new Date(f.attemptedAtUtc).toLocaleString()}</div>
+          </div>`).join('')
+      : '<div class="empty">No recent publish failures.</div>';
+
+    el.innerHTML = `${stats}
+      <div class="section-heading">Low / out of stock</div>${lowStock}
+      <div class="section-heading">Recent failed publishes</div>${failedPublishes}`;
+  } catch (e) {
+    el.innerHTML = `<div class="empty">Failed to load overview: ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -206,6 +391,13 @@ function updateChannelHint() {
     CHANNEL_HINTS[type] || 'Check the channel’s publisher implementation for which fields it reads (ApiKey / ApiSecret / AccessToken / AccessTokenSecret / ExternalId).';
 }
 
+function channelHealth(c) {
+  if (!c.hasCredentials) return { dot: 'health-err', label: 'No credentials set' };
+  if (!c.lastPublishAtUtc) return { dot: 'health-warn', label: 'Not published to yet' };
+  if (c.lastPublishStatus === 'Succeeded') return { dot: 'health-ok', label: `Last publish OK · ${new Date(c.lastPublishAtUtc).toLocaleString()}` };
+  return { dot: 'health-err', label: `Last publish failed · ${new Date(c.lastPublishAtUtc).toLocaleString()}` };
+}
+
 async function loadChannelsTab() {
   const el = document.getElementById('channels-list');
   el.innerHTML = 'Loading…';
@@ -213,9 +405,10 @@ async function loadChannelsTab() {
     channelsCache = null;
     const channels = await getChannels();
     el.innerHTML = channels.length
-      ? `<table><thead><tr><th>Name</th><th>Type</th><th>Enabled</th><th></th></tr></thead><tbody>
-          ${channels.map(c => `<tr><td>${escapeHtml(c.displayName)}</td><td>${escapeHtml(c.type)}</td><td>${c.isEnabled ? 'yes' : 'no'}</td>
-            <td><span class="refresh" onclick="removeChannel('${c.id}')">remove</span></td></tr>`).join('')}
+      ? `<table><thead><tr><th>Name</th><th>Type</th><th>Enabled</th><th>Health</th><th></th></tr></thead><tbody>
+          ${channels.map(c => { const h = channelHealth(c); return `<tr><td>${escapeHtml(c.displayName)}</td><td>${escapeHtml(c.type)}</td><td>${c.isEnabled ? 'yes' : 'no'}</td>
+            <td><span class="health-dot ${h.dot}"></span>${escapeHtml(h.label)}</td>
+            <td><span class="refresh" onclick="removeChannel('${c.id}')">remove</span></td></tr>`; }).join('')}
         </tbody></table>`
       : '<div class="empty">No channels configured yet - add one below.</div>';
   } catch (e) {
@@ -269,6 +462,7 @@ async function publish(contentId) {
   await loadContent();
 }
 
+loadOverview();
 loadCatalog();
 loadOrders();
 loadContent();
