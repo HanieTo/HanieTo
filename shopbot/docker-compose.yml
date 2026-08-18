@@ -17,6 +17,11 @@ services:
       - ./i18n:/bot/i18n
     command: [ "python", "-u", "run.py" ]
     restart: always
+    extra_hosts:
+      # host.docker.internal (used for PUBLISHING_API_URL) is automatic on
+      # Docker Desktop but not on plain Linux Docker engines (e.g. the one
+      # inside a GitHub Codespace) - this makes it resolve there too.
+      - "host.docker.internal:host-gateway"
 
   redis:
     image: redis:latest

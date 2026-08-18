@@ -1,0 +1,25 @@
+{
+  "name": "OmniCommerce (HanieTo)",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:1-8.0",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {},
+    "ghcr.io/devcontainers/features/python:1": { "version": "3.12" }
+  },
+  "forwardPorts": [5169, 5000, 5432, 6379],
+  "portsAttributes": {
+    "5169": { "label": "Dashboard / API", "onAutoForward": "openBrowser" },
+    "5000": { "label": "Shop bot webapp" },
+    "5432": { "label": "Postgres (bot catalog)", "onAutoForward": "silent" },
+    "6379": { "label": "Redis (bot)", "onAutoForward": "silent" }
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "ms-python.python",
+        "ms-azuretools.vscode-docker"
+      ]
+    }
+  }
+}
