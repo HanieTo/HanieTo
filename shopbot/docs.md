@@ -24,6 +24,7 @@ Full documentation for deployment, configuration, user flows, admin flows, refer
 | `WEBAPP_HOST` | Hostname for the Telegram bot service. | `0.0.0.0` for Docker Compose, `localhost` for local deployment |
 | `WEBAPP_PORT` | Port for the Telegram bot service. | `5000` |
 | `TOKEN` | Telegram bot token from `@BotFather`. | No recommended value |
+| `INTERNAL_API_KEY` | Shared secret the OmniCommerce dashboard sends as `X-Internal-Api-Key` to write products/orders (see `internal_api/catalog_admin.py`). Must match the dashboard's `ShopBotInternalApi:ApiKey`. | Any strong value |
 | `ADMIN_ID_LIST` | Comma-separated list of Telegram IDs that can access the admin menu. | No recommended value |
 | `SUPPORT_LINK` | Telegram support profile URL used by the Help button. | `https://t.me/${YOUR_USERNAME_TG}` |
 | `POSTGRES_USER` | PostgreSQL username. | `postgres` |
